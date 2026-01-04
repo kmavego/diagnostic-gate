@@ -1,4 +1,4 @@
-# Python
+# Python cache
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -13,3 +13,6 @@ __pycache__/
 # Env
 .env
 
+
+# runtime db
+*.sqlite3
