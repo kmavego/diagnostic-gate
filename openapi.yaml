@@ -1,0 +1,518 @@
+openapi: 3.1.0
+info:
+  title: Diagnostic Gate API
+  version: "0.1"
+  description: >
+    Frozen API contract for Diagnostic Gate MVP.
+    Backend is authoritative: it evaluates gates and writes audit submissions.
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+servers:
+  - url: http://localhost:8000
+    description: Local dev (example)
+
+tags:
+  - name: Projects
+  - name: Evaluation
+  - name: UI Schema
+  - name: Submissions
+
+security:
+  - OwnerIdHeader: []
+
+paths:
+  /projects:
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Create a new project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+            examples:
+              minimal:
+                value: { title: "My project" }
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List projects
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Projects list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedProjects"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /projects/{project_id}:
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Get a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /projects/{project_id}/evaluate:
+    post:
+      tags: [Evaluation]
+      operationId: evaluateProject
+      summary: Evaluate current gate for a project and write audit submission
+      description: >
+        Always writes a submission record, regardless of allow/reject outcome.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateRequest"
+            examples:
+              minimal:
+                value:
+                  artifacts: {}
+      responses:
+        "200":
+          description: Evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluateResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{project_id}/ui-schema:
+    get:
+      tags: [UI Schema]
+      operationId: getUiSchema
+      summary: Get UI schema for current gate of a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: UI schema
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiSchemaResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /submissions:
+    get:
+      tags: [Submissions]
+      operationId: listSubmissions
+      summary: List audit submissions
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - name: project_id
+          in: query
+          required: false
+          description: Optional filter by project id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Submissions list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedSubmissions"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /submissions/{submission_id}:
+    get:
+      tags: [Submissions]
+      operationId: getSubmission
+      summary: Get a submission (full audit record)
+      parameters:
+        - $ref: "#/components/parameters/SubmissionId"
+      responses:
+        "200":
+          description: Submission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Submission"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    OwnerIdHeader:
+      type: apiKey
+      in: header
+      name: X-Owner-Id
+      description: MVP auth stub. Required on all endpoints.
+
+  parameters:
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Project identifier (string; UUID recommended)
+    SubmissionId:
+      name: submission_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Submission identifier (string; UUID/ULID recommended)
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+  responses:
+    BadRequest:
+      description: Bad request (invalid JSON or parameters)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            badJson:
+              value:
+                error: "bad_request"
+                message: "Invalid JSON"
+    ValidationError:
+      description: Validation error (client input rejected)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationErrorEnvelope"
+          examples:
+            invalidArtifacts:
+              value:
+                error: "validation_error"
+                message: "Invalid request body"
+                errors:
+                  - code: "SCHEMA_INVALID"
+                    message: "artifacts must be an object"
+                    path: "artifacts"
+                    severity: "error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            notFound:
+              value:
+                error: "not_found"
+                message: "Project not found"
+    InternalError:
+      description: Internal server error (unexpected)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            engineError:
+              value:
+                error: "internal_error"
+                message: "Engine failure"
+
+  schemas:
+    # ---- Common error envelopes ----
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Machine category for the error envelope
+        message:
+          type: string
+          description: Human-readable summary
+
+    ValidationErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error, message, errors]
+      properties:
+        error:
+          type: string
+          const: validation_error
+        message:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/StructuredError"
+
+    StructuredError:
+      type: object
+      additionalProperties: true
+      required: [code, message, path, severity]
+      properties:
+        code:
+          type: string
+          description: Stable machine code (e.g., ARTIFACT_MISSING, SCHEMA_INVALID, GATE_REJECTED)
+        message:
+          type: string
+          description: Human-readable explanation
+        path:
+          type: string
+          description: JSON path to the problematic location (e.g., artifacts.A1)
+        severity:
+          type: string
+          enum: [error, warning]
+
+    # ---- Core objects ----
+    Project:
+      type: object
+      additionalProperties: true
+      required: [id, state]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        state:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+
+    PaginatedProjects:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+        total:
+          type: integer
+          minimum: 0
+
+    EvaluateRequest:
+      type: object
+      additionalProperties: false
+      required: [artifacts]
+      properties:
+        artifacts:
+          type: object
+          description: Arbitrary JSON per artifact key; validated by current gate schema
+          additionalProperties: true
+
+    Decision:
+      type: string
+      enum: [allow, reject, need_more, error]
+
+    EvaluateResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - decision
+        - errors
+        - submission_id
+        - project_state
+        - current_gate_id
+        - current_gate_version
+      properties:
+        decision:
+          $ref: "#/components/schemas/Decision"
+        next_state:
+          type: [string, "null"]
+          description: Next state if allowed; null if rejected/unchanged
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/StructuredError"
+        submission_id:
+          type: string
+        project_state:
+          type: string
+        current_gate_id:
+          type: string
+        current_gate_version:
+          type: string
+
+    Submission:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - project_id
+        - created_at
+        - gate_id
+        - gate_version
+        - decision
+        - artifacts
+        - errors
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        gate_id:
+          type: string
+        gate_version:
+          type: string
+        decision:
+          $ref: "#/components/schemas/Decision"
+        artifacts:
+          type: object
+          additionalProperties: true
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/StructuredError"
+
+    SubmissionSummary:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, created_at, gate_id, gate_version, decision]
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        gate_id:
+          type: string
+        gate_version:
+          type: string
+        decision:
+          $ref: "#/components/schemas/Decision"
+
+    PaginatedSubmissions:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubmissionSummary"
+        total:
+          type: integer
+          minimum: 0
+
+    # ---- UI schema ----
+    UiSchemaResponse:
+      type: object
+      additionalProperties: false
+      required: [project_id, project_state, gate, form]
+      properties:
+        project_id:
+          type: string
+        project_state:
+          type: string
+        gate:
+          $ref: "#/components/schemas/GateDescriptor"
+        form:
+          $ref: "#/components/schemas/FormSchema"
+
+    GateDescriptor:
+      type: object
+      additionalProperties: false
+      required: [id, version]
+      properties:
+        id:
+          type: string
+        version:
+          type: string
+        title:
+          type: string
+
+    FormSchema:
+      type: object
+      additionalProperties: false
+      required: [fields]
+      properties:
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/FormField"
+
+    FormField:
+      type: object
+      additionalProperties: false
+      required: [key, label, type, required]
+      properties:
+        key:
+          type: string
+          description: Artifact key (e.g., A1)
+        label:
+          type: string
+        type:
+          type: string
+          description: UI field type
+          enum: [json, string, text, number, boolean]
+        required:
+          type: boolean
+        hint:
+          type: string
+

@@ -16,3 +16,6 @@ __pycache__/
 
 # runtime db
 *.sqlite3
+
+# docs (local)
+*.docx
