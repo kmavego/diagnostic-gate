@@ -20,11 +20,16 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Install dev deps
+      - name: Install backend deps
         run: |
           python3 -m pip install -U pip
+          python3 -m pip install -r backend/requirements.txt
+
+      - name: Install dev deps
+        run: |
           python3 -m pip install -r requirements-dev.txt
 
       - name: Run canon tests
         run: |
           python3 -m pytest -q
+
