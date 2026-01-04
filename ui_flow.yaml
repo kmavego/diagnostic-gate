@@ -1,0 +1,317 @@
+# ui_flow.yaml
+spec_version: 1.0.0
+namespace: NDS_DIAGNOSTIC_GATE
+scope: course_design
+description: "UI-поток: экраны, порядок прохождения, состояния, действия при BLOCK/PASS, правила возврата и протоколирование"
+
+dependencies:
+  uses:
+    - gates_registry.yaml
+    - nds_state_machine.yaml
+    - artifact_registry.yaml
+    - artifact_ui_mapping.yaml
+    - ux_messages.yaml
+
+global_flow_rules:
+  no_manual_override: true
+  no_implicit_inference: true
+  lock_next_on_block: true
+  always_show:
+    - current_state
+    - gate_id
+    - gate_version
+  on_block_show:
+    - error_code
+    - reason_class
+    - message_variant   # short/normal/detailed (resolved by ux_messages.ui_bindings)
+    - next_required_action
+  audit_log:
+    enabled: true
+    log_events:
+      - artifact_submitted
+      - gate_evaluated
+      - blocked
+      - passed
+      - state_transitioned
+      - protocol_exported
+
+protocol:
+  id: protocol_v1
+  fields:
+    - timestamp
+    - project_id
+    - state_before
+    - gate_id
+    - gate_version
+    - decision: [PASS, BLOCK]
+    - error_code
+    - reason_class
+    - offending_spans
+    - missing_fields
+    - artifacts_snapshot_ref
+  export_formats: [PDF, JSON]
+
+navigation:
+  sidebar:
+    show_states: true
+    show_gates: true
+    allow_jump:
+      within_completed_states: true
+      into_locked_future_states: false
+
+screens:
+
+  - id: S00_project_intake
+    title: "Новый проект"
+    purpose: "Создать проект и назначить стартовое состояние DRAFT"
+    entry_state: null
+    exit_state: DRAFT
+    components:
+      - id: project_title
+        type: text_input
+        required: true
+        placeholder: "Название проекта"
+      - id: project_scope
+        type: dropdown
+        required: true
+        options: [course_design]
+      - id: start
+        type: primary_button
+        label: "Начать"
+        action: create_project_and_go_to_next
+    transitions:
+      on_submit:
+        to_screen: S01_gate01_problem
+        set_state: DRAFT
+
+  # =========================================================
+  # Gate 01 — PROBLEM_VALIDATION_01
+  # =========================================================
+  - id: S01_gate01_problem
+    title: "Gate 01 — Валидация проблемы"
+    gate_ref: { gate_id: PROBLEM_VALIDATION_01, version: 1.1.0 }
+    entry_state: DRAFT
+    exit_state_on_pass: VALIDATED_PROBLEM
+    artifacts:
+      - target_action
+      - error_scenario
+      - economic_impact
+    ui_layout_ref: L01_problem_validation
+    actions:
+      primary:
+        id: evaluate_gate
+        label: "Проверить допуск"
+      secondary:
+        - { id: show_examples, label: "Эталоны" }
+        - { id: show_rules, label: "Критерии" }
+        - { id: export_protocol, label: "Экспорт протокола" }
+    on_result:
+      PASS:
+        toast: "Gate открыт. Переход разрешён."
+        transition:
+          set_state: VALIDATED_PROBLEM
+          to_screen: S02_gate02_goal
+      BLOCK:
+        lock:
+          next_screen: true
+        return_to:
+          artifact: "first_failing_artifact"
+        show:
+          - error_panel
+          - micro_learning
+        resolution_actions:
+          - { id: revise, label: "Исправить артефакт", focus: "first_failing_artifact" }
+          - { id: show_rule, label: "Показать критерий запрета" }
+          - { id: show_examples, label: "Показать эталоны" }
+
+  # =========================================================
+  # Gate 02 — GOAL_TO_ADMISSION_02
+  # =========================================================
+  - id: S02_gate02_goal
+    title: "Gate 02 — Цель → допуск"
+    gate_ref: { gate_id: GOAL_TO_ADMISSION_02, version: 1.0.1 }
+    entry_state: VALIDATED_PROBLEM
+    exit_state_on_pass: ADMISSION_DEFINED
+    artifacts:
+      - learning_goal
+      - decision_context
+      - admission_rule
+    ui_layout_ref: L02_goal_to_admission
+    actions:
+      primary:
+        id: evaluate_gate
+        label: "Сформировать допуск"
+      secondary:
+        - { id: show_examples, label: "Эталоны" }
+        - { id: show_rules, label: "Критерии" }
+        - { id: export_protocol, label: "Экспорт протокола" }
+    on_result:
+      PASS:
+        toast: "Допуск определён. Можно проектировать решения."
+        transition:
+          set_state: ADMISSION_DEFINED
+          to_screen: S03_gate03_content
+      BLOCK:
+        lock:
+          next_screen: true
+        return_to:
+          artifact: "first_failing_artifact"
+        show:
+          - error_panel
+          - micro_learning
+        resolution_actions:
+          - { id: revise, label: "Исправить артефакт", focus: "first_failing_artifact" }
+          - { id: show_rule, label: "Показать критерий запрета" }
+          - { id: show_examples, label: "Показать эталоны" }
+
+  # =========================================================
+  # Gate 03 — CONTENT_TO_DECISIONS_03
+  # =========================================================
+  - id: S03_gate03_content
+    title: "Gate 03 — Контент → решения"
+    gate_ref: { gate_id: CONTENT_TO_DECISIONS_03, version: 1.0.0 }
+    entry_state: ADMISSION_DEFINED
+    exit_state_on_pass: DECISIONS_DEFINED
+    artifacts:
+      - content_outline
+      - critical_decisions_map
+      - error_prevention_links
+    ui_layout_ref: L03_content_to_decisions
+    actions:
+      primary:
+        id: evaluate_gate
+        label: "Проверить связность"
+      secondary:
+        - { id: show_examples, label: "Эталоны" }
+        - { id: show_rules, label: "Критерии" }
+        - { id: export_protocol, label: "Экспорт протокола" }
+    on_result:
+      PASS:
+        toast: "Решения зафиксированы. Контент допустим как средство."
+        transition:
+          set_state: DECISIONS_DEFINED
+          to_screen: S04_gate04_assessment
+      BLOCK:
+        lock:
+          next_screen: true
+        return_to:
+          artifact: "first_failing_artifact"
+        show:
+          - error_panel
+          - micro_learning
+        resolution_actions:
+          - { id: revise, label: "Исправить артефакт", focus: "first_failing_artifact" }
+          - { id: show_rule, label: "Показать критерий запрета" }
+          - { id: show_examples, label: "Показать эталоны" }
+
+  # =========================================================
+  # Gate 04 — ASSESSMENT_TO_ADMISSION_04
+  # =========================================================
+  - id: S04_gate04_assessment
+    title: "Gate 04 — Оценивание → недопуск"
+    gate_ref: { gate_id: ASSESSMENT_TO_ADMISSION_04, version: 1.0.0 }
+    entry_state: DECISIONS_DEFINED
+    exit_state_on_pass: ADMISSION_ENFORCED
+    artifacts:
+      - assessment_design
+      - admission_decision
+      - failure_consequences
+    ui_layout_ref: L04_assessment_to_admission
+    actions:
+      primary:
+        id: evaluate_gate
+        label: "Настроить недопуск"
+      secondary:
+        - { id: show_examples, label: "Эталоны" }
+        - { id: show_rules, label: "Критерии" }
+        - { id: export_protocol, label: "Экспорт протокола" }
+    on_result:
+      PASS:
+        toast: "Недопуск определён. Контроль качества реален."
+        transition:
+          set_state: ADMISSION_ENFORCED
+          to_screen: S05_gate05_scope
+      BLOCK:
+        lock:
+          next_screen: true
+        return_to:
+          artifact: "first_failing_artifact"
+        show:
+          - error_panel
+          - micro_learning
+        resolution_actions:
+          - { id: revise, label: "Исправить артефакт", focus: "first_failing_artifact" }
+          - { id: show_rule, label: "Показать критерий запрета" }
+          - { id: show_examples, label: "Показать эталоны" }
+
+  # =========================================================
+  # Gate 05 — UNIVERSALITY_FILTER_05
+  # =========================================================
+  - id: S05_gate05_scope
+    title: "Gate 05 — Границы и траектории"
+    gate_ref: { gate_id: UNIVERSALITY_FILTER_05, version: 1.0.0 }
+    entry_state: ADMISSION_ENFORCED
+    exit_state_on_pass: SCOPE_AND_PATHS_DEFINED
+    artifacts:
+      - audience_bounds
+      - entry_level_diagnostics
+      - branching_or_paths
+      - contraindications_and_risks
+    ui_layout_ref: L05_universality_filter
+    actions:
+      primary:
+        id: evaluate_gate
+        label: "Завершить валидацию"
+      secondary:
+        - { id: show_examples, label: "Эталоны" }
+        - { id: show_rules, label: "Критерии" }
+        - { id: export_protocol, label: "Экспорт протокола" }
+    on_result:
+      PASS:
+        toast: "Проект валидирован. Границы и траектории определены."
+        transition:
+          set_state: SCOPE_AND_PATHS_DEFINED
+          to_screen: S06_final_summary
+      BLOCK:
+        lock:
+          next_screen: true
+        return_to:
+          artifact: "first_failing_artifact"
+        show:
+          - error_panel
+          - micro_learning
+        resolution_actions:
+          - { id: revise, label: "Исправить артефакт", focus: "first_failing_artifact" }
+          - { id: show_rule, label: "Показать критерий запрета" }
+          - { id: show_examples, label: "Показать эталоны" }
+
+  # =========================================================
+  # Финал
+  # =========================================================
+  - id: S06_final_summary
+    title: "Итог: валидированный проект"
+    entry_state: SCOPE_AND_PATHS_DEFINED
+    components:
+      - id: validated_snapshot
+        type: read_only_summary
+        includes:
+          - target_action
+          - error_scenario
+          - economic_impact
+          - learning_goal
+          - admission_rule
+          - critical_decisions_map
+          - assessment_design
+          - admission_decision
+          - audience_bounds
+          - branching_or_paths
+          - contraindications_and_risks
+      - id: protocol_export
+        type: primary_button
+        label: "Экспортировать протокол"
+        action: export_protocol
+      - id: restart_variant
+        type: secondary_button
+        label: "Создать вариант проекта"
+        action: clone_project
+

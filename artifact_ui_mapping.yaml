@@ -1,0 +1,398 @@
+# artifact_ui_mapping.yaml
+spec_version: 1.0.0
+namespace: NDS_DIAGNOSTIC_GATE
+scope: course_design
+description: "Маппинг артефактов (Gates 01–05) в UI: поля, типы ввода, подсказки, примеры, реакции на ошибки"
+
+global_ui_principles:
+  no_soft_pass: true
+  no_manual_override: true
+  show_reason_code: true
+  show_reason_class: true
+  show_offending_spans_when_available: true
+  default_block_state: "LOCK_NEXT"
+  micro_learning_on_block:
+    max_lines: 5
+    show_only_relevant_rule: true
+
+layouts:
+  - id: L01_problem_validation
+    title: "Gate 01 — Валидация проблемы"
+    artifacts: [target_action, error_scenario, economic_impact]
+    next_button_label: "Проверить допуск"
+
+  - id: L02_goal_to_admission
+    title: "Gate 02 — Цель → допуск"
+    artifacts: [learning_goal, decision_context, admission_rule]
+    next_button_label: "Сформировать допуск"
+
+  - id: L03_content_to_decisions
+    title: "Gate 03 — Контент → решения"
+    artifacts: [content_outline, critical_decisions_map, error_prevention_links]
+    next_button_label: "Проверить связность"
+
+  - id: L04_assessment_to_admission
+    title: "Gate 04 — Оценивание → недопуск"
+    artifacts: [assessment_design, admission_decision, failure_consequences]
+    next_button_label: "Настроить недопуск"
+
+  - id: L05_universality_filter
+    title: "Gate 05 — Границы и траектории"
+    artifacts: [audience_bounds, entry_level_diagnostics, branching_or_paths, contraindications_and_risks]
+    next_button_label: "Завершить валидацию"
+
+fields:
+
+  # =========================================================
+  # Gate 01
+  # =========================================================
+  - artifact_id: target_action
+    layout_id: L01_problem_validation
+    ui:
+      component: textarea
+      rows: 3
+      required: true
+      placeholder: "Опишите действие/решение в работе. Не 'понимать', а 'делать'."
+      helper_text: "Формула: [когда X] сотрудник [делает Y] и это можно зафиксировать (документ/система/решение)."
+      examples:
+        good:
+          - "При падении KPI 2 месяца подряд руководитель проводит разбор причин и фиксирует план действий в таск-системе."
+        bad:
+          - "Понимать важность коммуникации."
+      hints_on_block:
+        - trigger_error_codes: [ERR_VAGUE_OBJECTIVE, ERR_NON_OBSERVABLE_ACTION]
+          micro_learning: "Навык = наблюдаемое действие. Если нельзя зафиксировать (решение/артефакт/запись), это не навык."
+      error_mapping:
+        ERR_VAGUE_OBJECTIVE:
+          focus: "highlight_forbidden_verbs"
+          message_style: "hard"
+        ERR_NON_OBSERVABLE_ACTION:
+          focus: "missing_observable_event"
+          message_style: "hard"
+
+  - artifact_id: error_scenario
+    layout_id: L01_problem_validation
+    ui:
+      component: textarea
+      rows: 5
+      required: true
+      placeholder: "Опишите один конкретный сценарий ошибки: кто, когда, что делает неправильно, к чему это приводит."
+      helper_text: "Минимум: актор + ошибочное действие + последствие. Используйте 'когда/если/в случае'."
+      examples:
+        good:
+          - "Если 2 месяца подряд падают KPI, руководитель усиливает микроменеджмент вместо диагностики причин, что приводит к выгоранию и увольнению 1–2 сильных сотрудников за 3–4 месяца."
+        bad:
+          - "Когда возникают сложности, сотрудники действуют неэффективно и появляются проблемы."
+      hints_on_block:
+        - trigger_error_codes: [ERR_INCOMPLETE_ERROR_SCENARIO, ERR_ABSTRACT_ERROR]
+          micro_learning: "Сценарий ошибки должен позволять отличить провал от успеха. Абстракции не проверяются."
+      error_mapping:
+        ERR_INCOMPLETE_ERROR_SCENARIO:
+          focus: "missing_elements"
+        ERR_ABSTRACT_ERROR:
+          focus: "vague_consequence_or_no_action"
+
+  - artifact_id: economic_impact
+    layout_id: L01_problem_validation
+    ui:
+      component: numeric_with_unit
+      required: true
+      schema:
+        units: [USD, RUB, Hours, "Conversion%"]
+      placeholder: { value: "", unit: "Hours" }
+      helper_text: "Укажите измеримую цену ошибки. Ниже порога — проект блокируется."
+      examples:
+        good:
+          - { value: 80, unit: "Hours" }
+          - { value: 1200, unit: "USD" }
+        bad:
+          - { value: 5, unit: "Hours" }
+      error_mapping:
+        ERR_LOW_BUSINESS_IMPACT:
+          focus: "value"
+          message_style: "hard"
+
+  # =========================================================
+  # Gate 02
+  # =========================================================
+  - artifact_id: learning_goal
+    layout_id: L02_goal_to_admission
+    ui:
+      component: textarea
+      rows: 3
+      required: true
+      placeholder: "Цель как действие: 'в контексте X сотрудник делает Y по стандарту Z'."
+      helper_text: "Запрещены декларации ('развить', 'повысить', 'понимание'). Цель должна раскладываться на: действие + контекст + стандарт."
+      examples:
+        good:
+          - "Руководитель при падении KPI выбирает разбор причин вместо усиления контроля и фиксирует план корректирующих действий с критериями проверки."
+        bad:
+          - "Развить навыки коммуникации."
+      hints_on_block:
+        - trigger_error_codes: [ERR_DECLARATIVE_GOAL, ERR_NON_OPERATIONAL_GOAL]
+          micro_learning: "Если из цели нельзя вывести запрет 'Запрещать X если Y', цель не управляет дизайном."
+      error_mapping:
+        ERR_DECLARATIVE_GOAL:
+          focus: "highlight_forbidden_verbs_or_nouns"
+        ERR_NON_OPERATIONAL_GOAL:
+          focus: "missing_extractables"
+
+  - artifact_id: decision_context
+    layout_id: L02_goal_to_admission
+    ui:
+      component: structured_text
+      required: true
+      sections:
+        - id: trigger_event
+          label: "Триггер"
+          component: textarea
+          rows: 2
+          placeholder: "Что запускает необходимость решения?"
+        - id: available_options
+          label: "Альтернативы выбора"
+          component: list_input
+          min_items: 2
+          placeholder: "Добавьте минимум 2 варианта"
+      helper_text: "Без триггера и альтернатив нет решения — значит нечего запрещать."
+      error_mapping:
+        ERR_NO_DECISION_CONTEXT:
+          focus: "missing_trigger_or_options"
+
+  - artifact_id: admission_rule
+    layout_id: L02_goal_to_admission
+    ui:
+      component: textarea
+      rows: 3
+      required: true
+      placeholder: "Формула: 'Запрещать [действие], если [условие недопуска]'."
+      helper_text: "Запрет должен быть бинарным, без 'рекомендуется/желательно'."
+      examples:
+        good:
+          - "Запрещать руководителю усиливать контроль задач, если не проведён разбор причин падения KPI и не согласован план корректирующих действий."
+        bad:
+          - "Рекомендуется не микроменеджерить."
+      error_mapping:
+        ERR_INVALID_ADMISSION_RULE:
+          focus: "pattern_and_binary"
+        ERR_GOAL_RULE_MISMATCH:
+          focus: "goal_rule_alignment"
+          message_style: "critical"
+
+  # =========================================================
+  # Gate 03
+  # =========================================================
+  - artifact_id: content_outline
+    layout_id: L03_content_to_decisions
+    ui:
+      component: list_input
+      required: true
+      min_items: 3
+      placeholder: "Добавьте темы/блоки (черновик допустим)"
+      helper_text: "Каждый пункт должен быть привязан к решению и предотвращаемой ошибке."
+      error_mapping:
+        ERR_CONTENT_WITHOUT_DECISIONS:
+          focus: "mappability"
+          message_style: "hard"
+
+  - artifact_id: critical_decisions_map
+    layout_id: L03_content_to_decisions
+    ui:
+      component: table_editor
+      required: true
+      min_rows: 3
+      columns:
+        - { id: decision_point, label: "Решение (момент выбора)", type: text, width: "40%" }
+        - { id: available_options, label: "Альтернативы", type: list_inline, width: "35%" }
+        - { id: wrong_choice, label: "Типовая ошибка", type: text, width: "25%" }
+      helper_text: "Решение = выбор между альтернативами. Теория без выбора блокируется."
+      error_mapping:
+        ERR_INSUFFICIENT_DECISIONS:
+          focus: "row_count_or_missing_columns"
+        ERR_THEORETICAL_DECISIONS:
+          focus: "theoretical_markers"
+
+  - artifact_id: error_prevention_links
+    layout_id: L03_content_to_decisions
+    ui:
+      component: relation_mapper
+      required: true
+      left_source: content_outline
+      right_source: critical_decisions_map
+      link_fields:
+        - { id: prevented_error, label: "Какая ошибка предотвращается", type: text }
+        - { id: rationale, label: "Почему этот блок предотвращает ошибку", type: textarea, rows: 2 }
+      helper_text: "Нельзя оставить решение без связки: контент → решение → предотвращаемая ошибка."
+      error_mapping:
+        ERR_CONTENT_NOT_PREVENTING_ERRORS:
+          focus: "missing_links_or_no_decision_reference"
+          message_style: "critical"
+
+  # =========================================================
+  # Gate 04
+  # =========================================================
+  - artifact_id: assessment_design
+    layout_id: L04_assessment_to_admission
+    ui:
+      component: structured_text
+      required: true
+      sections:
+        - id: task
+          label: "Проверочное действие (симуляция/кейс/практика)"
+          component: textarea
+          rows: 3
+        - id: fail_conditions
+          label: "Условия провала (что именно считается ошибкой)"
+          component: textarea
+          rows: 3
+      helper_text: "Проверка должна быть проваливаемой и основанной на действии, а не на знании."
+      error_mapping:
+        ERR_KNOWLEDGE_ASSESSMENT:
+          focus: "forbidden_types"
+          message_style: "hard"
+        ERR_NON_FAILABLE_ASSESSMENT:
+          focus: "fail_conditions"
+          message_style: "hard"
+
+  - artifact_id: admission_decision
+    layout_id: L04_assessment_to_admission
+    ui:
+      component: textarea
+      required: true
+      placeholder: "Бинарно: 'допуск/недопуск к [действию] при [условии]'."
+      helper_text: "Никаких 'рекомендуется'. Это управленческое решение."
+      error_mapping:
+        ERR_SOFT_ADMISSION:
+          focus: "soft_language"
+          message_style: "critical"
+
+  - artifact_id: failure_consequences
+    layout_id: L04_assessment_to_admission
+    ui:
+      component: structured_text
+      required: true
+      sections:
+        - id: blocked_action
+          label: "Что блокируется при провале"
+          component: textarea
+          rows: 2
+        - id: remediation_path
+          label: "Путь ремедиации (что сделать для повторного допуска)"
+          component: textarea
+          rows: 3
+      helper_text: "Если провал не меняет ничего в реальности — это симуляция."
+      error_mapping:
+        ERR_NO_REAL_CONSEQUENCE:
+          focus: "blocked_action"
+          message_style: "critical"
+
+  # =========================================================
+  # Gate 05
+  # =========================================================
+  - artifact_id: audience_bounds
+    layout_id: L05_universality_filter
+    ui:
+      component: structured_text
+      required: true
+      sections:
+        - id: inclusion_criteria
+          label: "Кто допущен"
+          component: textarea
+          rows: 3
+        - id: exclusion_criteria
+          label: "Кому противопоказано / кто не допущен"
+          component: textarea
+          rows: 3
+      helper_text: "Курс 'для всех' запрещён. Нужны критерии недопуска."
+      error_mapping:
+        ERR_UNIVERSAL_AUDIENCE:
+          focus: "universal_claims"
+        ERR_NO_EXCLUSION_CRITERIA:
+          focus: "exclusion_criteria"
+          message_style: "hard"
+
+  - artifact_id: entry_level_diagnostics
+    layout_id: L05_universality_filter
+    ui:
+      component: structured_text
+      required: true
+      sections:
+        - id: diagnostic_method
+          label: "Метод диагностики (проваливаемый)"
+          component: textarea
+          rows: 2
+        - id: level_labels
+          label: "Уровни"
+          component: list_input
+          min_items: 2
+        - id: placement_rule
+          label: "Правило распределения"
+          component: textarea
+          rows: 2
+      helper_text: "Самооценка запрещена. Диагностика должна иметь риск недопуска."
+      error_mapping:
+        ERR_SELF_DECLARED_LEVEL:
+          focus: "self_assessment_language"
+          message_style: "hard"
+
+  - artifact_id: branching_or_paths
+    layout_id: L05_universality_filter
+    ui:
+      component: table_editor
+      required: true
+      min_rows: 2
+      columns:
+        - { id: path_name, label: "Траектория", type: text, width: "25%" }
+        - { id: for_level, label: "Для уровня", type: text, width: "20%" }
+        - { id: steps, label: "Шаги/модули", type: textarea, rows: 2, width: "35%" }
+        - { id: gating_points, label: "Точки гейтинга", type: textarea, rows: 2, width: "20%" }
+      helper_text: "Минимум 2 траектории + точки проверки/перевода/недопуска."
+      error_mapping:
+        ERR_NO_BRANCHING:
+          focus: "row_count_or_missing_gating_points"
+          message_style: "hard"
+
+  - artifact_id: contraindications_and_risks
+    layout_id: L05_universality_filter
+    ui:
+      component: table_editor
+      required: true
+      min_rows: 2
+      columns:
+        - { id: risk_scenario, label: "Сценарий риска", type: text, width: "35%" }
+        - { id: wrong_application, label: "Ошибка применения", type: text, width: "35%" }
+        - { id: mitigation_or_block, label: "Как блокируется/смягчается", type: textarea, rows: 2, width: "30%" }
+      helper_text: "Общие фразы запрещены. Нужен конкретный сценарий + конкретный запрет/условие."
+      error_mapping:
+        ERR_NO_CONTRAINDICATIONS:
+          focus: "generic_safety_text_or_missing_rows"
+          message_style: "critical"
+
+error_presentation:
+  message_styles:
+    hard:
+      title_prefix: "Остановка."
+      tone: "cold_professional"
+      show_micro_learning: true
+    critical:
+      title_prefix: "Критическая ошибка."
+      tone: "cold_professional"
+      show_micro_learning: true
+      require_user_revision_ack: true
+
+ui_actions:
+  on_block:
+    lock_next_state: true
+    actions:
+      - id: revise_artifact
+        label: "Переформулировать"
+      - id: show_examples
+        label: "Показать эталоны"
+      - id: show_rule
+        label: "Показать критерий запрета"
+  on_pass:
+    actions:
+      - id: proceed
+        label: "Перейти к следующему Gate"
+      - id: export_protocol
+        label: "Экспортировать протокол"
+

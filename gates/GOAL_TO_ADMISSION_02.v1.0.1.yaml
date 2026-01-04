@@ -1,0 +1,137 @@
+gate_id: GOAL_TO_ADMISSION_02
+version: 1.0.1
+scope: course_design
+objective: "Запрет запуска курса с декларативными целями без операционного критерия допуска к действию и проверка логической связности 'цель → правило допуска'"
+
+# =========================================================
+# 1. Схема требуемых данных (Input Schema)
+# =========================================================
+artifacts:
+
+  - id: learning_goal
+    label: "Цель обучения"
+    description: "Формулировка изменения, которое должно проявляться как действие/решение в конкретном контексте"
+    validation_rules:
+      forbidden_verbs:
+        - развить
+        - повысить
+        - улучшить
+        - сформировать
+        - дать
+        - научить
+        - прокачать
+      forbidden_nouns:
+        - понимание
+        - осознанность
+        - мотивация
+        - компетентность
+        - мышление
+      must_be_rewritable_to_admission: true
+      rewritable_to_admission_criteria:
+        # Движок должен уметь извлечь эти сущности из цели.
+        # Если извлечение невозможно — цель считается декларативной/шумовой.
+        must_extract:
+          - action                   # наблюдаемое действие/решение
+          - context                  # ситуация/условия применения
+          - standard_or_constraint   # критерий правильности/ограничение
+
+  - id: decision_context
+    label: "Контекст принятия решения"
+    description: "Ситуация, в которой обучаемый принимает критическое решение"
+    validation_rules:
+      must_include_elements:
+        - trigger_event        # что запускает необходимость решения
+        - available_options    # какие альтернативы есть
+      forbidden_patterns:
+        - abstract_situations  # «в процессе работы», «в профессиональной деятельности»
+
+  - id: admission_rule
+    label: "Правило допуска / запрета"
+    description: "Формализованное условие, разрешающее или запрещающее действие"
+    validation_rules:
+      must_match_pattern: "Запрещать .* если .*"
+      must_include_elements:
+        - prohibited_action    # что именно запрещено
+        - blocking_condition   # при каком невыполненном условии
+      must_be_binary: true     # допущен / не допущен
+      must_extract:
+        - prohibited_action
+        - context
+        - blocking_condition
+
+# =========================================================
+# 2. Логика запретов (Prohibition Logic)
+# =========================================================
+gates:
+
+  - id: declarative_goal_censor
+    trigger_on: learning_goal
+    condition: contains(forbidden_verbs) OR contains(forbidden_nouns)
+    action: BLOCK
+    reason_class: DECLARATIVE_GOAL
+    error_code: ERR_DECLARATIVE_GOAL
+    message: >
+      Остановка. Цель сформулирована декларативно и не задаёт
+      проверяемого условия допуска к действию.
+      Перепишите цель так, чтобы из неё можно было вывести правило запрета.
+
+  - id: non_admissible_goal_check
+    trigger_on: learning_goal
+    condition: not_rewritable_to_admission(rewritable_to_admission_criteria.must_extract)
+    action: BLOCK
+    reason_class: NON_OPERATIONAL_GOAL
+    error_code: ERR_NON_OPERATIONAL_GOAL
+    message: >
+      Запрет. Цель обучения не может быть преобразована
+      в операционный критерий допуска (действие + контекст + стандарт).
+      Такая цель не может управлять дизайном обучения.
+
+  - id: context_missing_gate
+    trigger_on: decision_context
+    condition: missing(must_include_elements) OR matches(forbidden_patterns)
+    action: BLOCK
+    reason_class: MISSING_DECISION_CONTEXT
+    error_code: ERR_NO_DECISION_CONTEXT
+    message: >
+      Запрет. Контекст принятия решения не определён или описан абстрактно.
+      Укажите событие-триггер и доступные альтернативы выбора.
+
+  - id: admission_rule_validator
+    trigger_on: admission_rule
+    condition: not_matches(must_match_pattern) OR not_binary OR missing(must_include_elements)
+    action: BLOCK
+    reason_class: INVALID_ADMISSION_RULE
+    error_code: ERR_INVALID_ADMISSION_RULE
+    message: >
+      Остановка. Правило допуска должно быть однозначным запретом
+      действия при невыполненном условии и иметь форму «Запрещать X если Y».
+
+  - id: logic_consistency_check
+    trigger_on: [learning_goal, admission_rule]
+    # Проверяем не "похожесть текста", а согласованность сущностей:
+    # цель задаёт действие/контекст/стандарт; правило допуска должно запрещать это же действие
+    # в том же контексте, опираясь на тот же стандарт (или его проверяемое условие).
+    condition:
+      any:
+        - not_aligned(extract(learning_goal, action), extract(admission_rule, prohibited_action))
+        - not_aligned(extract(learning_goal, context), extract(admission_rule, context))
+        - not_aligned(extract(learning_goal, standard_or_constraint), extract(admission_rule, blocking_condition))
+    action: BLOCK
+    reason_class: LOGIC_MISMATCH
+    error_code: ERR_GOAL_RULE_MISMATCH
+    message: >
+      Критическая ошибка логики. Правило допуска (admission_rule) не вытекает из цели (learning_goal).
+      Вы запрещаете одно, а обучаете другому.
+      Приведите цель и правило к одной связке: действие → стандарт → условие недопуска.
+
+# =========================================================
+# 3. Условия перехода состояний (State Transitions)
+# =========================================================
+transition:
+  from: VALIDATED_PROBLEM
+  to: ADMISSION_DEFINED
+  require:
+    - all_artifacts_present: true
+    - all_gates_passed: true
+  lock_on_fail: true
+

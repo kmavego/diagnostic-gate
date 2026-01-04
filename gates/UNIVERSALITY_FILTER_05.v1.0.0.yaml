@@ -1,0 +1,120 @@
+gate_id: UNIVERSALITY_FILTER_05
+version: 1.0.0
+scope: course_design
+objective: "Запрет запуска универсального курса без границ применимости, критериев недопуска и ветвления по уровню входа"
+
+# =========================================================
+# 1. Схема требуемых данных (Input Schema)
+# =========================================================
+artifacts:
+
+  - id: audience_bounds
+    label: "Границы аудитории и применимости"
+    description: "Кому курс предназначен и кому противопоказан (явные критерии включения/исключения)"
+    validation_rules:
+      must_define:
+        - inclusion_criteria      # кто допущен
+        - exclusion_criteria      # кому курс НЕ подходит
+      forbidden_patterns:
+        - universal_audience      # «для всех», «для каждого», «подойдёт любому»
+        - vague_roles             # «специалисты», «сотрудники», «руководители» без уровня/контекста
+
+  - id: entry_level_diagnostics
+    label: "Диагностика уровня входа"
+    description: "Как определяется уровень входа и готовность к прохождению (до начала обучения)"
+    validation_rules:
+      must_define:
+        - diagnostic_method       # метод/процедура диагностики
+        - level_labels            # уровни (например: Novice/Intermediate/Advanced)
+        - placement_rule          # правило распределения по уровням
+      forbidden_patterns:
+        - self_declared_levels    # «сам выбери уровень», «оцените себя»
+
+  - id: branching_or_paths
+    label: "Ветвление / траектории"
+    description: "Как курс/путь меняется в зависимости от уровня входа и результатов диагностики"
+    validation_rules:
+      must_define:
+        - path_variants           # минимум 2 траектории или правила адаптации
+        - gating_points           # где происходит проверка и возможный перевод/недопуск
+      min_paths: 2
+
+  - id: contraindications_and_risks
+    label: "Противопоказания и риски применения"
+    description: "В каких условиях применение навыков/подходов из курса может навредить"
+    validation_rules:
+      min_items: 2
+      must_include_elements:
+        - risk_scenario           # сценарий риска/вреда
+        - wrong_application       # типовая ошибка применения
+        - mitigation_or_block     # как предотвращается (запрет/условие/смягчение)
+      forbidden_patterns:
+        - generic_safety_text     # «соблюдайте осторожность», «учитывайте контекст»
+
+# =========================================================
+# 2. Логика запретов (Prohibition Logic)
+# =========================================================
+gates:
+
+  - id: universality_claim_blocker
+    trigger_on: audience_bounds
+    condition: matches(forbidden_patterns)
+    action: BLOCK
+    reason_class: UNIVERSALITY_CLAIM
+    error_code: ERR_UNIVERSAL_AUDIENCE
+    message: >
+      Запрет. Заявлена универсальная аудитория или размытые роли.
+      Определите критерии включения и исключения. Курс не может быть «для всех».
+
+  - id: missing_exclusion_criteria_gate
+    trigger_on: audience_bounds
+    condition: missing(exclusion_criteria)
+    action: BLOCK
+    reason_class: NO_EXCLUSIONS
+    error_code: ERR_NO_EXCLUSION_CRITERIA
+    message: >
+      Остановка. Не указано, кому курс противопоказан.
+      Без критериев недопуска вы не контролируете риски применения.
+
+  - id: self_assessment_level_blocker
+    trigger_on: entry_level_diagnostics
+    condition: matches(forbidden_patterns)
+    action: BLOCK
+    reason_class: SELF_ASSESSMENT_PLACEMENT
+    error_code: ERR_SELF_DECLARED_LEVEL
+    message: >
+      Запрет. Уровень входа нельзя определять самооценкой.
+      Нужна диагностика, которую можно провалить, и правило распределения.
+
+  - id: no_branching_gate
+    trigger_on: branching_or_paths
+    condition: count(path_variants) < min_paths OR missing(gating_points)
+    action: BLOCK
+    reason_class: NO_BRANCHING
+    error_code: ERR_NO_BRANCHING
+    message: >
+      Запрет. Не определены минимум две траектории или правила адаптации,
+      а также точки проверки/перевода/недопуска.
+
+  - id: missing_risk_control_gate
+    trigger_on: contraindications_and_risks
+    condition: missing(must_include_elements) OR matches(forbidden_patterns) OR count(items) < min_items
+    action: BLOCK
+    reason_class: NO_RISK_CONTROL
+    error_code: ERR_NO_CONTRAINDICATIONS
+    message: >
+      Критическая ошибка. Не описаны противопоказания и риски применения,
+      либо они заданы общими словами.
+      Курс без контроля рисков не может быть запущен.
+
+# =========================================================
+# 3. Условия перехода состояний (State Transitions)
+# =========================================================
+transition:
+  from: ADMISSION_ENFORCED
+  to: SCOPE_AND_PATHS_DEFINED
+  require:
+    - all_artifacts_present: true
+    - all_gates_passed: true
+  lock_on_fail: true
+

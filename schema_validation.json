@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nds.example/schema/gate-spec.json",
+  "title": "NDS Gate Spec",
+  "type": "object",
+  "required": ["gate_id", "version", "scope", "objective", "artifacts", "gates", "transition"],
+  "properties": {
+    "gate_id": { "type": "string", "minLength": 3 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "scope": { "type": "string" },
+    "objective": { "type": "string", "minLength": 10 },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "validation_rules"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "description": { "type": "string" },
+          "validation_rules": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "trigger_on", "action", "error_code", "reason_class", "message"],
+        "properties": {
+          "id": { "type": "string" },
+          "trigger_on": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            ]
+          },
+          "condition": { "type": ["string", "object"] },
+          "action": { "type": "string", "enum": ["BLOCK"] },
+          "error_code": { "type": "string" },
+          "reason_class": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "transition": {
+      "type": "object",
+      "required": ["from", "to", "require"],
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "require": { "type": "array" },
+        "lock_on_fail": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
+

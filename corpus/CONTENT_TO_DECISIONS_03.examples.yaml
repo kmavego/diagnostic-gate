@@ -1,0 +1,50 @@
+gate_id: CONTENT_TO_DECISIONS_03
+version: 1.0.0
+cases:
+
+  - id: CD01_valid
+    input:
+      content_outline:
+        - "Разбор причин падения KPI"
+        - "Выбор вмешательства: процесс/люди/цели"
+        - "Коммуникация корректирующих действий без микроменеджмента"
+      critical_decisions_map:
+        - decision_point: "KPI падает 2 месяца подряд: что делать в первую неделю?"
+          available_options: ["Диагностика причин + план", "Усилить контроль задач", "Сменить людей"]
+          wrong_choice: "Усилить контроль задач вместо диагностики причин"
+        - decision_point: "Причины выявлены: что менять в первую очередь?"
+          available_options: ["Процесс", "Людей", "Цели/метрики"]
+          wrong_choice: "Сменить людей без проверки процесса"
+        - decision_point: "Как внедрять план без микроменеджмента?"
+          available_options: ["Роли/ответственности", "Ежедневный контроль", "Метрики + ревью"]
+          wrong_choice: "Перейти к ежедневному контролю"
+      error_prevention_links:
+        - content_item_ref: "Разбор причин падения KPI"
+          decision_ref: "KPI падает 2 месяца подряд: что делать в первую неделю?"
+          prevented_error: "Контроль вместо диагностики"
+          rationale: "Без процедуры диагностики запрет не исполним."
+        - content_item_ref: "Выбор вмешательства: процесс/люди/цели"
+          decision_ref: "Причины выявлены: что менять в первую очередь?"
+          prevented_error: "Смена людей вместо изменения процесса"
+          rationale: "Даёт критерии выбора и исключает ложные решения."
+        - content_item_ref: "Коммуникация корректирующих действий без микроменеджмента"
+          decision_ref: "Как внедрять план без микроменеджмента?"
+          prevented_error: "Срыв в микроменеджмент при внедрении"
+          rationale: "Определяет границы контроля и формат ревью."
+    expected:
+      decision: PASS
+      next_state: DECISIONS_DEFINED
+
+  - id: CD02_block_topic_only
+    input:
+      content_outline: ["Введение", "Основы", "Продвинутые методы"]
+      critical_decisions_map: []
+      error_prevention_links: []
+    expected:
+      decision: BLOCK
+      errors:
+        - artifact_id: content_outline
+          error_code: ERR_CONTENT_WITHOUT_DECISIONS
+        - artifact_id: critical_decisions_map
+          error_code: ERR_INSUFFICIENT_DECISIONS
+

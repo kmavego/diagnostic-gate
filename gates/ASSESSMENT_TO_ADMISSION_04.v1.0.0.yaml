@@ -1,0 +1,97 @@
+gate_id: ASSESSMENT_TO_ADMISSION_04
+version: 1.0.0
+scope: course_design
+objective: "Запрет использования проверок знания и формальных заданий вместо реального допуска к действию"
+
+# =========================================================
+# 1. Схема требуемых данных (Input Schema)
+# =========================================================
+artifacts:
+
+  - id: assessment_design
+    label: "Дизайн проверки / оценки"
+    description: "Описание того, как проверяется результат обучения"
+    validation_rules:
+      forbidden_types:
+        - knowledge_quiz          # тесты на воспроизведение информации
+        - theoretical_questions   # вопросы без действия
+        - self_assessment         # самооценка
+      must_be_action_based: true
+      must_be_failable: true     # задание можно провалить
+
+  - id: admission_decision
+    label: "Решение о допуске"
+    description: "Формализованное правило допуска или недопуска к реальному действию"
+    validation_rules:
+      must_be_binary: true       # допущен / не допущен
+      must_reference:
+        - critical_decisions_map
+      forbidden_patterns:
+        - soft_verdicts           # «рекомендуется», «желательно», «в целом готов»
+
+  - id: failure_consequences
+    label: "Последствия недопуска"
+    description: "Что происходит, если обучаемый не проходит проверку"
+    validation_rules:
+      must_define:
+        - blocked_action          # какое действие запрещено
+        - remediation_path        # что нужно сделать для повторного допуска
+      forbidden_patterns:
+        - no_real_consequences    # «повторите материал», «посмотрите ещё раз»
+
+# =========================================================
+# 2. Логика запретов (Prohibition Logic)
+# =========================================================
+gates:
+
+  - id: knowledge_assessment_blocker
+    trigger_on: assessment_design
+    condition: contains(forbidden_types)
+    action: BLOCK
+    reason_class: KNOWLEDGE_CHECK
+    error_code: ERR_KNOWLEDGE_ASSESSMENT
+    message: >
+      Запрет. Проверка построена как контроль знаний или воспроизведения информации.
+      Такие проверки не дают права допускать к действию.
+
+  - id: non_failable_assessment_gate
+    trigger_on: assessment_design
+    condition: not_failable
+    action: BLOCK
+    reason_class: NO_FAILURE_POSSIBILITY
+    error_code: ERR_NON_FAILABLE_ASSESSMENT
+    message: >
+      Остановка. Проверка не предусматривает реальной возможности провала.
+      Без риска недопуска контроль качества является симуляцией.
+
+  - id: soft_admission_blocker
+    trigger_on: admission_decision
+    condition: not_binary OR matches(forbidden_patterns)
+    action: BLOCK
+    reason_class: SOFT_ADMISSION
+    error_code: ERR_SOFT_ADMISSION
+    message: >
+      Запрет. Решение о допуске сформулировано нестрого.
+      Допуск должен быть бинарным: разрешено или запрещено.
+
+  - id: consequence_absence_check
+    trigger_on: failure_consequences
+    condition: missing(blocked_action) OR matches(forbidden_patterns)
+    action: BLOCK
+    reason_class: NO_REAL_CONSEQUENCE
+    error_code: ERR_NO_REAL_CONSEQUENCE
+    message: >
+      Критическая ошибка. Недопуск не влечёт реального запрета на действие.
+      Проверка без последствий не имеет смысла.
+
+# =========================================================
+# 3. Условия перехода состояний (State Transitions)
+# =========================================================
+transition:
+  from: DECISIONS_DEFINED
+  to: ADMISSION_ENFORCED
+  require:
+    - all_artifacts_present: true
+    - all_gates_passed: true
+  lock_on_fail: true
+

@@ -1,0 +1,23 @@
+spec_version: 1.0.0
+namespace: NDS_DIAGNOSTIC_GATE
+description: "Политика устаревания и миграций канона."
+
+policy:
+  support_window:
+    minor_versions: 2
+  deprecate_process:
+    steps:
+      - "Mark as deprecated in gates_registry.yaml"
+      - "Add migration_notes to CHANGELOG.md"
+      - "Keep compatibility for 2 minor versions"
+      - "Remove only on next major version"
+  required_fields_on_deprecation:
+    - deprecated_since
+    - removal_target
+    - migration_notes
+  versioning:
+    semver:
+      major: "Breaking schema/semantics changes"
+      minor: "New gates/rules backward compatible"
+      patch: "Bugfix/tighter validation without schema break"
+

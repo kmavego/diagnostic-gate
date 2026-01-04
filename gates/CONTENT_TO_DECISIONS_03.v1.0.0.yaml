@@ -1,0 +1,105 @@
+gate_id: CONTENT_TO_DECISIONS_03
+version: 1.0.0
+scope: course_design
+objective: "Запрет проектирования курса, основанного на темах и контенте, без карты критических решений и предотвращаемых ошибок"
+
+# =========================================================
+# 1. Схема требуемых данных (Input Schema)
+# =========================================================
+artifacts:
+
+  - id: content_outline
+    label: "Черновой план курса / контент-структура"
+    description: "Список модулей, тем или блоков, предлагаемых методистом"
+    validation_rules:
+      allowed_format:
+        - list
+      forbidden_patterns:
+        - topic_only_titles        # «Введение», «Основы», «Продвинутые методы»
+      must_be_mappable_to_decisions: true
+
+  - id: critical_decisions_map
+    label: "Карта критических решений"
+    description: "Перечень решений, которые обучаемый принимает в реальной работе"
+    validation_rules:
+      min_items: 3
+      must_include_elements:
+        - decision_point           # момент принятия решения
+        - available_options        # варианты выбора
+        - wrong_choice             # типовой неправильный выбор
+      forbidden_patterns:
+        - theoretical_choices_only # «понять», «осознать», «выбрать подход»
+
+  - id: error_prevention_links
+    label: "Связь контента с предотвращаемыми ошибками"
+    description: "Явное указание, какую ошибку предотвращает каждый элемент обучения"
+    validation_rules:
+      must_link_each_decision: true
+      must_reference:
+        - content_outline
+        - critical_decisions_map
+      forbidden_patterns:
+        - generic_benefits         # «помогает лучше понять», «расширяет кругозор»
+
+# =========================================================
+# 2. Логика запретов (Prohibition Logic)
+# =========================================================
+gates:
+
+  - id: content_first_censor
+    trigger_on: content_outline
+    condition: not_mappable_to_decisions
+    action: BLOCK
+    reason_class: CONTENT_CENTRIC_DESIGN
+    error_code: ERR_CONTENT_WITHOUT_DECISIONS
+    message: >
+      Запрет. Структура курса построена вокруг тем и контента,
+      но не привязана к решениям, которые обучаемый принимает в работе.
+      Контент не может быть точкой проектирования.
+
+  - id: insufficient_decisions_gate
+    trigger_on: critical_decisions_map
+    condition: count(items) < min_items OR missing(must_include_elements)
+    action: BLOCK
+    reason_class: NO_CRITICAL_DECISIONS
+    error_code: ERR_INSUFFICIENT_DECISIONS
+    message: >
+      Остановка. Не зафиксировано достаточное количество
+      критических решений с вариантами выбора и типовой ошибкой.
+      Обучение без решений не может предотвращать ошибки.
+
+  - id: theory_instead_of_choice_blocker
+    trigger_on: critical_decisions_map
+    condition: matches(forbidden_patterns)
+    action: BLOCK
+    reason_class: THEORETICAL_DECISIONS
+    error_code: ERR_THEORETICAL_DECISIONS
+    message: >
+      Запрет. Решения описаны в теоретической форме
+      и не предполагают реального выбора между альтернативами.
+
+  - id: content_error_mismatch_check
+    trigger_on: [content_outline, error_prevention_links]
+    condition:
+      any:
+        - missing_links(content_outline, error_prevention_links)
+        - links_do_not_reference_decisions(error_prevention_links, critical_decisions_map)
+    action: BLOCK
+    reason_class: CONTENT_ERROR_MISMATCH
+    error_code: ERR_CONTENT_NOT_PREVENTING_ERRORS
+    message: >
+      Критическая ошибка проектирования. Контент не связан
+      с предотвращением конкретных ошибок или решений.
+      Вы производите материал, а не обучающий механизм.
+
+# =========================================================
+# 3. Условия перехода состояний (State Transitions)
+# =========================================================
+transition:
+  from: ADMISSION_DEFINED
+  to: DECISIONS_DEFINED
+  require:
+    - all_artifacts_present: true
+    - all_gates_passed: true
+  lock_on_fail: true
+

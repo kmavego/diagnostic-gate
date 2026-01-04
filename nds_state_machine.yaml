@@ -1,0 +1,128 @@
+# nds_state_machine.yaml
+spec_version: 1.0.0
+name: NDS_Diagnostic_Gate_StateMachine
+scope: course_design
+description: "Единая state machine для канонических Gate 01–05 (жёсткий цензор проектирования курса)"
+
+states:
+  - id: DRAFT
+    description: "Идея/проект в сыром виде. Проектирование курса запрещено до валидации проблемы."
+    terminal: false
+
+  - id: VALIDATED_PROBLEM
+    description: "Проблема и цена ошибки верифицируемы. Разрешён переход к целям/допуску."
+    terminal: false
+
+  - id: ADMISSION_DEFINED
+    description: "Цель переписана в допуск/запрет. Зафиксирован контекст решения и правило недопуска."
+    terminal: false
+
+  - id: DECISIONS_DEFINED
+    description: "Курс привязан к карте критических решений и предотвращаемых ошибок (а не к темам)."
+    terminal: false
+
+  - id: ADMISSION_ENFORCED
+    description: "Оценивание перестало быть тестом знаний: есть проваливаемая проверка и реальные последствия недопуска."
+    terminal: false
+
+  - id: SCOPE_AND_PATHS_DEFINED
+    description: "Определены границы применимости, противопоказания, диагностика уровня входа и траектории."
+    terminal: true
+
+transitions:
+  - id: T01_PROBLEM_VALIDATION
+    from: DRAFT
+    to: VALIDATED_PROBLEM
+    gate_ref:
+      gate_id: PROBLEM_VALIDATION_01
+      version: 1.1.0
+    require:
+      artifacts:
+        - target_action
+        - error_scenario
+        - economic_impact
+      gates_passed: true
+    lock_on_fail: true
+
+  - id: T02_GOAL_TO_ADMISSION
+    from: VALIDATED_PROBLEM
+    to: ADMISSION_DEFINED
+    gate_ref:
+      gate_id: GOAL_TO_ADMISSION_02
+      version: 1.0.1
+    require:
+      artifacts:
+        - learning_goal
+        - decision_context
+        - admission_rule
+      gates_passed: true
+    lock_on_fail: true
+
+  - id: T03_CONTENT_TO_DECISIONS
+    from: ADMISSION_DEFINED
+    to: DECISIONS_DEFINED
+    gate_ref:
+      gate_id: CONTENT_TO_DECISIONS_03
+      version: 1.0.0
+    require:
+      artifacts:
+        - content_outline
+        - critical_decisions_map
+        - error_prevention_links
+      gates_passed: true
+    lock_on_fail: true
+
+  - id: T04_ASSESSMENT_TO_ADMISSION
+    from: DECISIONS_DEFINED
+    to: ADMISSION_ENFORCED
+    gate_ref:
+      gate_id: ASSESSMENT_TO_ADMISSION_04
+      version: 1.0.0
+    require:
+      artifacts:
+        - assessment_design
+        - admission_decision
+        - failure_consequences
+      gates_passed: true
+    lock_on_fail: true
+
+  - id: T05_UNIVERSALITY_FILTER
+    from: ADMISSION_ENFORCED
+    to: SCOPE_AND_PATHS_DEFINED
+    gate_ref:
+      gate_id: UNIVERSALITY_FILTER_05
+      version: 1.0.0
+    require:
+      artifacts:
+        - audience_bounds
+        - entry_level_diagnostics
+        - branching_or_paths
+        - contraindications_and_risks
+      gates_passed: true
+    lock_on_fail: true
+
+runtime_contract:
+  # Важное правило: движок не домысливает. Если артефакт не содержит явных данных — Gate закрыт.
+  no_implicit_inference: true
+
+  # Каждая блокировка обязана возвращать коды причин для аналитики и UX (не только текст).
+  require_reason_code: true
+  require_reason_class: true
+
+  # Никаких обходов: переход возможен только через gate_ref текущего перехода.
+  forbid_manual_state_override: true
+
+outputs:
+  on_block:
+    include:
+      - error_code
+      - reason_class
+      - message
+      - missing_fields
+      - offending_spans
+  on_pass:
+    include:
+      - validated_artifacts_summary
+      - next_state
+      - next_required_artifacts
+

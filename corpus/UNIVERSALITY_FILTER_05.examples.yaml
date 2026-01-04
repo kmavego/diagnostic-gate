@@ -1,0 +1,38 @@
+gate_id: UNIVERSALITY_FILTER_05
+version: 1.0.0
+cases:
+
+  - id: UF01_valid
+    input:
+      audience_bounds: "Допуск: тимлиды с опытом управления 3+ месяца и ответственностью за KPI. Исключение: сотрудники без управленческой роли; контекст без метрик результата."
+      entry_level_diagnostics: "Метод: симуляция кейса + проверка плана действий. Уровни: Novice/Intermediate. Правило: Novice — если нет диагностики причин и критериев проверки."
+      branching_or_paths: "Путь A (Novice): 2 симуляции + ревью. Путь B (Intermediate): 1 симуляция + проектный кейс. Точки гейтинга: после каждой симуляции возможен недопуск/перевод."
+      contraindications_and_risks:
+        - risk_scenario: "Команда без метрик результата"
+          wrong_application: "Внедрять планы и контроль без данных"
+          mitigation_or_block: "Запрещать применение подхода до внедрения метрик и цикла измерения"
+        - risk_scenario: "Инцидент высокого риска"
+          wrong_application: "Следовать стандартной процедуре без эскалации"
+          mitigation_or_block: "Запрещать самостоятельные решения; обязательная эскалация по протоколу инцидента"
+    expected:
+      decision: PASS
+      next_state: SCOPE_AND_PATHS_DEFINED
+
+  - id: UF02_block_universal
+    input:
+      audience_bounds: "Курс для всех руководителей."
+      entry_level_diagnostics: "Выберите уровень сами."
+      branching_or_paths: "Одна программа для всех."
+      contraindications_and_risks: []
+    expected:
+      decision: BLOCK
+      errors:
+        - artifact_id: audience_bounds
+          error_code: ERR_UNIVERSAL_AUDIENCE
+        - artifact_id: entry_level_diagnostics
+          error_code: ERR_SELF_DECLARED_LEVEL
+        - artifact_id: branching_or_paths
+          error_code: ERR_NO_BRANCHING
+        - artifact_id: contraindications_and_risks
+          error_code: ERR_NO_CONTRAINDICATIONS
+

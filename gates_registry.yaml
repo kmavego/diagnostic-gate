@@ -1,0 +1,57 @@
+# gates_registry.yaml
+spec_version: 1.0.0
+namespace: NDS_DIAGNOSTIC_GATE
+description: "Реестр Gate-спецификаций (канон исполняемых запретов) для проектирования курса"
+default_scope: course_design
+
+gates:
+  - gate_id: PROBLEM_VALIDATION_01
+    version: 1.1.0
+    scope: course_design
+    file: gates/PROBLEM_VALIDATION_01.v1.1.0.yaml
+    entry_state: DRAFT
+    exit_state: VALIDATED_PROBLEM
+
+  - gate_id: GOAL_TO_ADMISSION_02
+    version: 1.0.1
+    scope: course_design
+    file: gates/GOAL_TO_ADMISSION_02.v1.0.1.yaml
+    entry_state: VALIDATED_PROBLEM
+    exit_state: ADMISSION_DEFINED
+
+  - gate_id: CONTENT_TO_DECISIONS_03
+    version: 1.0.0
+    scope: course_design
+    file: gates/CONTENT_TO_DECISIONS_03.v1.0.0.yaml
+    entry_state: ADMISSION_DEFINED
+    exit_state: DECISIONS_DEFINED
+
+  - gate_id: ASSESSMENT_TO_ADMISSION_04
+    version: 1.0.0
+    scope: course_design
+    file: gates/ASSESSMENT_TO_ADMISSION_04.v1.0.0.yaml
+    entry_state: DECISIONS_DEFINED
+    exit_state: ADMISSION_ENFORCED
+
+  - gate_id: UNIVERSALITY_FILTER_05
+    version: 1.0.0
+    scope: course_design
+    file: gates/UNIVERSALITY_FILTER_05.v1.0.0.yaml
+    entry_state: ADMISSION_ENFORCED
+    exit_state: SCOPE_AND_PATHS_DEFINED
+
+governance:
+  semver_policy:
+    major: "breaking schema/semantics changes"
+    minor: "new rules/gates, backward compatible"
+    patch: "bugfix, tighter validation, no schema changes"
+  change_control:
+    required_approvals:
+      - role: Canon_Owner
+        count: 1
+      - role: Methodology_Lead
+        count: 1
+    deprecation_policy:
+      support_window: "2 minor versions"
+      require_migration_notes: true
+

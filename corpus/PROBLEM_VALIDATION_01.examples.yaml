@@ -1,0 +1,38 @@
+gate_id: PROBLEM_VALIDATION_01
+version: 1.1.0
+cases:
+
+  - id: PV01_valid
+    input:
+      target_action: "При падении KPI 2 месяца подряд руководитель проводит разбор причин и фиксирует план корректирующих действий в таск-системе."
+      error_scenario: "Если KPI падают 2 месяца подряд, руководитель усиливает ежедневный контроль задач вместо диагностики причин, из-за чего команда теряет инициативу и за 3–4 месяца увольняется 1–2 сильных сотрудника."
+      economic_impact: { value: 80, unit: "Hours" }
+    expected:
+      decision: PASS
+      next_state: VALIDATED_PROBLEM
+    notes: "Наблюдаемое действие + конкретная ошибка + значимый импакт."
+
+  - id: PV02_block_vague_objective
+    input:
+      target_action: "Понимать важность коммуникации."
+      error_scenario: "Если возникает конфликт, руководитель не договаривается и появляются проблемы."
+      economic_impact: { value: 1200, unit: "USD" }
+    expected:
+      decision: BLOCK
+      errors:
+        - artifact_id: target_action
+          error_code: ERR_VAGUE_OBJECTIVE
+        - artifact_id: error_scenario
+          error_code: ERR_ABSTRACT_ERROR
+
+  - id: PV03_block_low_impact
+    input:
+      target_action: "При получении жалобы клиентом оператор фиксирует причину и создаёт тикет с категорией."
+      error_scenario: "Если оператор не фиксирует причину жалобы, тикеты теряются и растёт нагрузка."
+      economic_impact: { value: 5, unit: "Hours" }
+    expected:
+      decision: BLOCK
+      errors:
+        - artifact_id: economic_impact
+          error_code: ERR_LOW_BUSINESS_IMPACT
+

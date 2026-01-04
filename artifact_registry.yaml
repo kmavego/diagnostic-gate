@@ -1,0 +1,466 @@
+# artifact_registry.yaml
+spec_version: 1.0.0
+namespace: NDS_DIAGNOSTIC_GATE
+scope: course_design
+description: "Единый реестр артефактов для Gates 01–05: типы, требования, примеры, потребители, зависимости"
+
+conventions:
+  # Движок НЕ домысливает. Если данных нет явно — артефакт считается недоопределённым.
+  no_implicit_inference: true
+
+  # Общие маркеры шумовых формулировок (используются как shared signals).
+  lexical_noise:
+    forbidden_state_verbs: [знать, понимать, осознавать, изучить, разбираться, повысить, улучшить, развить, сформировать, прокачать]
+    forbidden_abstract_nouns: [понимание, осознанность, мотивация, компетентность, мышление, эффективность, качество, успешность]
+    universal_claims: [для всех, каждому, любому, универсальный, всем сотрудникам]
+    vague_consequences: ["снижается эффективность", "возникают проблемы", "улучшается взаимодействие", "повышается качество работы"]
+
+types:
+  scalar_text:
+    description: "Строка текста"
+  numeric_measure:
+    description: "Числовая величина с единицей измерения"
+    schema:
+      value: number
+      unit: enum
+  list_text:
+    description: "Список строк"
+  list_objects:
+    description: "Список объектов заданной схемы"
+
+artifacts:
+
+  # =========================================================
+  # Gate 01 — PROBLEM_VALIDATION_01
+  # =========================================================
+
+  - id: target_action
+    label: "Целевое действие сотрудника"
+    type: scalar_text
+    purpose: "Определить наблюдаемое действие/решение, к которому будет допуск"
+    required: true
+    schema:
+      must_include:
+        - decision_event_or_system_action: true
+      forbidden:
+        verbs: "${conventions.lexical_noise.forbidden_state_verbs}"
+        patterns:
+          - abstract_nouns_only
+    examples:
+      valid:
+        - "При падении показателей команда-лид проводит разбор причин и фиксирует план корректирующих действий в таск-системе."
+        - "Перед наймом новых сотрудников руководитель формирует список воспроизводимых процессов и утверждает его с руководителем направления."
+      invalid:
+        - "Понимать важность коммуникации."
+        - "Повысить эффективность управления."
+        - "Разбираться в методологии."
+    used_by:
+      - gate_id: PROBLEM_VALIDATION_01
+        role: input
+    produced_in_state: DRAFT
+    consumed_in_state: DRAFT
+
+  - id: error_scenario
+    label: "Описание критической ошибки"
+    type: scalar_text
+    purpose: "Описать конкретное ошибочное действие в контексте + последствия"
+    required: true
+    schema:
+      min_words: 30
+      must_contain_context_tokens: [когда, если, "в случае"]
+      must_include_elements:
+        - actor
+        - erroneous_action
+        - consequence
+      forbidden_patterns:
+        - psychological_states_only
+        - vague_consequences
+    examples:
+      valid:
+        - "Если 2 месяца подряд падают KPI, руководитель начинает ежедневно проверять каждую задачу и переписывает решения за сотрудников, что приводит к выгоранию и потере инициативы, а через 3–4 месяца — к увольнению 1–2 сильных сотрудников."
+      invalid:
+        - "Когда возникают сложности, сотрудники действуют неэффективно и появляются проблемы."
+        - "В случае конфликтов руководитель плохо коммуницирует."
+    used_by:
+      - gate_id: PROBLEM_VALIDATION_01
+        role: input
+    produced_in_state: DRAFT
+    consumed_in_state: DRAFT
+
+  - id: economic_impact
+    label: "Цена ошибки"
+    type: numeric_measure
+    purpose: "Фиксировать значимость ошибки в бизнес-метриках"
+    required: true
+    schema:
+      unit:
+        enum: [USD, RUB, Hours, "Conversion%"]
+      min_threshold:
+        USD: 500
+        RUB: 30000
+        Hours: 40
+        "Conversion%": 1
+    examples:
+      valid:
+        - { value: 1200, unit: USD }
+        - { value: 80, unit: Hours }
+        - { value: 2.5, unit: "Conversion%" }
+      invalid:
+        - { value: 10, unit: USD }
+        - { value: 5, unit: Hours }
+        - { value: 0.2, unit: "Conversion%" }
+    used_by:
+      - gate_id: PROBLEM_VALIDATION_01
+        role: input
+    produced_in_state: DRAFT
+    consumed_in_state: DRAFT
+
+  # =========================================================
+  # Gate 02 — GOAL_TO_ADMISSION_02
+  # =========================================================
+
+  - id: learning_goal
+    label: "Цель обучения"
+    type: scalar_text
+    purpose: "Перевести цель в операциональный допуск: действие + контекст + стандарт"
+    required: true
+    schema:
+      forbidden:
+        verbs: "${conventions.lexical_noise.forbidden_state_verbs}"
+        nouns: "${conventions.lexical_noise.forbidden_abstract_nouns}"
+      rewritable_to_admission_criteria:
+        must_extract:
+          - action
+          - context
+          - standard_or_constraint
+    examples:
+      valid:
+        - "Руководитель при падении KPI выбирает разбор причин вместо микроменеджмента и фиксирует план корректирующих действий с критериями проверки."
+      invalid:
+        - "Развить навыки коммуникации."
+        - "Повысить осознанность руководителей."
+        - "Сформировать компетентность управления."
+    used_by:
+      - gate_id: GOAL_TO_ADMISSION_02
+        role: input
+      - gate_id: GOAL_TO_ADMISSION_02
+        role: alignment_source
+    produced_in_state: VALIDATED_PROBLEM
+    consumed_in_state: VALIDATED_PROBLEM
+
+  - id: decision_context
+    label: "Контекст принятия решения"
+    type: scalar_text
+    purpose: "Зафиксировать момент выбора и альтернативы"
+    required: true
+    schema:
+      must_include_elements:
+        - trigger_event
+        - available_options
+      forbidden_patterns:
+        - abstract_situations
+    examples:
+      valid:
+        - "Триггер: падение KPI 2 месяца подряд. Альтернативы: (1) разбор причин + план действий, (2) усиление контроля задач, (3) смена состава команды."
+      invalid:
+        - "В процессе работы руководитель принимает решения."
+        - "В профессиональной деятельности нужно выбирать подход."
+    used_by:
+      - gate_id: GOAL_TO_ADMISSION_02
+        role: input
+    produced_in_state: VALIDATED_PROBLEM
+    consumed_in_state: VALIDATED_PROBLEM
+
+  - id: admission_rule
+    label: "Правило допуска / запрета"
+    type: scalar_text
+    purpose: "Формализовать недопуск: запрещать X если Y"
+    required: true
+    schema:
+      must_match_pattern: "Запрещать .* если .*"
+      must_be_binary: true
+      must_extract: [prohibited_action, context, blocking_condition]
+    examples:
+      valid:
+        - "Запрещать руководителю усиливать контроль задач, если не проведён разбор причин падения KPI и не согласован план корректирующих действий."
+      invalid:
+        - "Рекомендуется не микроменеджерить."
+        - "Желательно проводить разбор причин."
+        - "Нужно улучшить коммуникацию."
+    used_by:
+      - gate_id: GOAL_TO_ADMISSION_02
+        role: input
+      - gate_id: GOAL_TO_ADMISSION_02
+        role: alignment_target
+    produced_in_state: VALIDATED_PROBLEM
+    consumed_in_state: VALIDATED_PROBLEM
+
+  # =========================================================
+  # Gate 03 — CONTENT_TO_DECISIONS_03
+  # =========================================================
+
+  - id: content_outline
+    label: "Черновой план курса / контент-структура"
+    type: list_text
+    purpose: "Зафиксировать что предлагается обучать (пока может быть «контентно»)"
+    required: true
+    schema:
+      min_items: 3
+      forbidden_patterns:
+        - topic_only_titles
+      must_be_mappable_to_decisions: true
+    examples:
+      valid:
+        - ["Разбор причин падения KPI", "Выбор вмешательства: процесс/люди/цели", "Коммуникация корректирующих действий без микроменеджмента"]
+      invalid:
+        - ["Введение", "Основы", "Продвинутые техники"]
+    used_by:
+      - gate_id: CONTENT_TO_DECISIONS_03
+        role: input
+      - gate_id: CONTENT_TO_DECISIONS_03
+        role: linking_source
+    produced_in_state: ADMISSION_DEFINED
+    consumed_in_state: ADMISSION_DEFINED
+
+  - id: critical_decisions_map
+    label: "Карта критических решений"
+    type: list_objects
+    purpose: "Список решений с альтернативами и типовой ошибкой"
+    required: true
+    schema:
+      min_items: 3
+      item_schema:
+        decision_point: string
+        available_options: [string]
+        wrong_choice: string
+      forbidden_patterns:
+        - theoretical_choices_only
+    examples:
+      valid:
+        - - decision_point: "KPI падает 2 месяца подряд: что делать в первую неделю?"
+            available_options: ["Разбор причин + план", "Усилить контроль задач", "Сменить людей"]
+            wrong_choice: "Усилить контроль задач вместо поиска причин"
+      invalid:
+        - - decision_point: "Понять важность коммуникации"
+            available_options: ["Осознать", "Изучить"]
+            wrong_choice: "Не осознать"
+    used_by:
+      - gate_id: CONTENT_TO_DECISIONS_03
+        role: input
+      - gate_id: ASSESSMENT_TO_ADMISSION_04
+        role: reference
+    produced_in_state: ADMISSION_DEFINED
+    consumed_in_state: ADMISSION_DEFINED
+
+  - id: error_prevention_links
+    label: "Связь контента с предотвращаемыми ошибками"
+    type: list_objects
+    purpose: "Связать каждый элемент контента с решением и ошибкой, которую он предотвращает"
+    required: true
+    schema:
+      must_link_each_decision: true
+      item_schema:
+        content_item_ref: string
+        decision_ref: string
+        prevented_error: string
+        rationale: string
+      forbidden_patterns:
+        - generic_benefits
+    examples:
+      valid:
+        - - content_item_ref: "Разбор причин падения KPI"
+            decision_ref: "KPI падает 2 месяца подряд: что делать в первую неделю?"
+            prevented_error: "Переход к микроменеджменту без диагностики причин"
+            rationale: "Учит процедуре выявления причин и фиксации плана, без чего запрет не исполним."
+      invalid:
+        - - content_item_ref: "Основы"
+            decision_ref: "—"
+            prevented_error: "помогает лучше понять тему"
+            rationale: "расширяет кругозор"
+    used_by:
+      - gate_id: CONTENT_TO_DECISIONS_03
+        role: input
+    produced_in_state: ADMISSION_DEFINED
+    consumed_in_state: ADMISSION_DEFINED
+
+  # =========================================================
+  # Gate 04 — ASSESSMENT_TO_ADMISSION_04
+  # =========================================================
+
+  - id: assessment_design
+    label: "Дизайн проверки / оценки"
+    type: scalar_text
+    purpose: "Описать проверку навыка как действие, которое можно провалить"
+    required: true
+    schema:
+      must_be_action_based: true
+      must_be_failable: true
+      forbidden_types: [knowledge_quiz, theoretical_questions, self_assessment]
+    examples:
+      valid:
+        - "Кейс-симуляция: при падении KPI выбрать план действий, оформить его в шаблоне и защитить перед ревьюером; провал — если план не содержит диагностики причин и критериев проверки."
+      invalid:
+        - "Тест из 20 вопросов по теории мотивации."
+        - "Самооценка уровня коммуникации по шкале 1–10."
+    used_by:
+      - gate_id: ASSESSMENT_TO_ADMISSION_04
+        role: input
+    produced_in_state: DECISIONS_DEFINED
+    consumed_in_state: DECISIONS_DEFINED
+
+  - id: admission_decision
+    label: "Решение о допуске"
+    type: scalar_text
+    purpose: "Бинарный допуск/недопуск к действию, привязанный к критическим решениям"
+    required: true
+    schema:
+      must_be_binary: true
+      must_reference: [critical_decisions_map]
+      forbidden_patterns: [soft_verdicts]
+    examples:
+      valid:
+        - "Недопуск к самостоятельному управлению командой в период просадки KPI, если сотрудник не проходит симуляцию выбора вмешательства по стандарту."
+      invalid:
+        - "Рекомендуется ещё потренироваться."
+        - "В целом готов, но стоит повторить материал."
+    used_by:
+      - gate_id: ASSESSMENT_TO_ADMISSION_04
+        role: input
+    produced_in_state: DECISIONS_DEFINED
+    consumed_in_state: DECISIONS_DEFINED
+
+  - id: failure_consequences
+    label: "Последствия недопуска"
+    type: scalar_text
+    purpose: "Определить реальный запрет и путь ремедиации"
+    required: true
+    schema:
+      must_define: [blocked_action, remediation_path]
+      forbidden_patterns: [no_real_consequences]
+    examples:
+      valid:
+        - "Заблокировано: самостоятельное решение о вмешательствах в работу команды при просадке KPI. Ремедиация: повтор симуляции после выполнения двух разборов кейсов с ревьюером."
+      invalid:
+        - "Повторите материал и попробуйте снова."
+        - "Посмотрите лекции ещё раз."
+    used_by:
+      - gate_id: ASSESSMENT_TO_ADMISSION_04
+        role: input
+    produced_in_state: DECISIONS_DEFINED
+    consumed_in_state: DECISIONS_DEFINED
+
+  # =========================================================
+  # Gate 05 — UNIVERSALITY_FILTER_05
+  # =========================================================
+
+  - id: audience_bounds
+    label: "Границы аудитории и применимости"
+    type: scalar_text
+    purpose: "Критерии включения/исключения (кому нельзя)"
+    required: true
+    schema:
+      must_define: [inclusion_criteria, exclusion_criteria]
+      forbidden_patterns: [universal_audience, vague_roles]
+    examples:
+      valid:
+        - "Допуск: тимлиды с опытом управления 3+ месяца и ответственностью за KPI. Исключение: сотрудники без управленческой роли; команды <3 человек; контекст без метрик результата."
+      invalid:
+        - "Курс для всех руководителей."
+        - "Подойдёт любому специалисту."
+    used_by:
+      - gate_id: UNIVERSALITY_FILTER_05
+        role: input
+    produced_in_state: ADMISSION_ENFORCED
+    consumed_in_state: ADMISSION_ENFORCED
+
+  - id: entry_level_diagnostics
+    label: "Диагностика уровня входа"
+    type: scalar_text
+    purpose: "Недопуск к пути без диагностики, которую можно провалить"
+    required: true
+    schema:
+      must_define: [diagnostic_method, level_labels, placement_rule]
+      forbidden_patterns: [self_declared_levels]
+    examples:
+      valid:
+        - "Метод: симуляция кейса + проверка артефакта плана действий. Уровни: Novice/Intermediate/Advanced. Правило: Novice — если не выделены причины и критерии проверки; Advanced — если выполнены все требования."
+      invalid:
+        - "Выберите уровень сами."
+        - "Оцените себя по шкале."
+    used_by:
+      - gate_id: UNIVERSALITY_FILTER_05
+        role: input
+    produced_in_state: ADMISSION_ENFORCED
+    consumed_in_state: ADMISSION_ENFORCED
+
+  - id: branching_or_paths
+    label: "Ветвление / траектории"
+    type: scalar_text
+    purpose: "Минимум 2 пути + точки гейтинга"
+    required: true
+    schema:
+      min_paths: 2
+      must_define: [path_variants, gating_points]
+    examples:
+      valid:
+        - "Путь A (Novice): 2 симуляции + ревью. Путь B (Intermediate): 1 симуляция + кейс с реального проекта. Точки гейтинга: после каждой симуляции возможен недопуск/перевод."
+      invalid:
+        - "Одна программа для всех без развилок."
+    used_by:
+      - gate_id: UNIVERSALITY_FILTER_05
+        role: input
+    produced_in_state: ADMISSION_ENFORCED
+    consumed_in_state: ADMISSION_ENFORCED
+
+  - id: contraindications_and_risks
+    label: "Противопоказания и риски применения"
+    type: list_objects
+    purpose: "Где применение навыков может навредить + как блокируется"
+    required: true
+    schema:
+      min_items: 2
+      item_schema:
+        risk_scenario: string
+        wrong_application: string
+        mitigation_or_block: string
+      forbidden_patterns: [generic_safety_text]
+    examples:
+      valid:
+        - - risk_scenario: "Команда без метрик результата"
+            wrong_application: "Внедрять контроль и планы без данных"
+            mitigation_or_block: "Запрещать применение подхода до внедрения метрик и базового цикла измерения"
+        - - risk_scenario: "Кризис/инцидент с высоким риском"
+            wrong_application: "Следовать стандартной процедуре без эскалации"
+            mitigation_or_block: "Запрещать самостоятельные решения; обязательная эскалация и протокол инцидента"
+      invalid:
+        - - risk_scenario: "Всегда"
+            wrong_application: "Будьте осторожны"
+            mitigation_or_block: "Учитывайте контекст"
+    used_by:
+      - gate_id: UNIVERSALITY_FILTER_05
+        role: input
+    produced_in_state: ADMISSION_ENFORCED
+    consumed_in_state: ADMISSION_ENFORCED
+
+dependencies:
+  # Межартефактные связи, которые движок должен проверять на уровне системы
+  - id: DEP_01_goal_rule_alignment
+    description: "Цель обучения должна согласовываться с правилом допуска по действию/контексту/стандарту"
+    involves: [learning_goal, admission_rule]
+    enforced_by_gate: GOAL_TO_ADMISSION_02
+
+  - id: DEP_02_content_to_decisions
+    description: "Каждый пункт контента должен быть связан с решением и предотвращаемой ошибкой"
+    involves: [content_outline, critical_decisions_map, error_prevention_links]
+    enforced_by_gate: CONTENT_TO_DECISIONS_03
+
+  - id: DEP_03_assessment_references_decisions
+    description: "Оценивание и решение о допуске должны ссылаться на карту критических решений"
+    involves: [assessment_design, admission_decision, critical_decisions_map]
+    enforced_by_gate: ASSESSMENT_TO_ADMISSION_04
+
+  - id: DEP_04_scope_controls_paths
+    description: "Границы аудитории, диагностика входа и траектории должны быть согласованы (нет универсальности)"
+    involves: [audience_bounds, entry_level_diagnostics, branching_or_paths, contraindications_and_risks]
+    enforced_by_gate: UNIVERSALITY_FILTER_05
+

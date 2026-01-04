@@ -1,0 +1,28 @@
+gate_id: ASSESSMENT_TO_ADMISSION_04
+version: 1.0.0
+cases:
+
+  - id: AA01_valid
+    input:
+      assessment_design: "Симуляция: при падении KPI выбрать вмешательство, оформить план и защитить перед ревьюером; провал — если нет диагностики причин и критериев проверки."
+      admission_decision: "Недопуск к самостоятельному управлению планом вмешательств при просадке KPI, если симуляция провалена по стандарту."
+      failure_consequences: "Заблокировано: самостоятельное решение о вмешательствах при просадке KPI. Ремедиация: повтор симуляции после 2 разборов кейсов с ревьюером."
+    expected:
+      decision: PASS
+      next_state: ADMISSION_ENFORCED
+
+  - id: AA02_block_quiz
+    input:
+      assessment_design: "Тест из 20 вопросов по теории мотивации."
+      admission_decision: "Рекомендуется ещё потренироваться."
+      failure_consequences: "Повторите материал и попробуйте снова."
+    expected:
+      decision: BLOCK
+      errors:
+        - artifact_id: assessment_design
+          error_code: ERR_KNOWLEDGE_ASSESSMENT
+        - artifact_id: admission_decision
+          error_code: ERR_SOFT_ADMISSION
+        - artifact_id: failure_consequences
+          error_code: ERR_NO_REAL_CONSEQUENCE
+

@@ -1,0 +1,39 @@
+gate_id: GOAL_TO_ADMISSION_02
+version: 1.0.1
+cases:
+
+  - id: GA01_valid
+    input:
+      learning_goal: "При падении KPI руководитель выбирает диагностику причин вместо усиления контроля и фиксирует план действий с критериями проверки."
+      decision_context: "Триггер: KPI падают 2 месяца подряд. Альтернативы: (1) диагностика причин + план, (2) усилить контроль задач, (3) сменить людей."
+      admission_rule: "Запрещать руководителю усиливать контроль задач, если не проведён разбор причин падения KPI и не зафиксирован план корректирующих действий с критериями проверки."
+    expected:
+      decision: PASS
+      next_state: ADMISSION_DEFINED
+
+  - id: GA02_block_declarative_goal
+    input:
+      learning_goal: "Развить лидерство и повысить осознанность."
+      decision_context: "В профессиональной деятельности руководитель принимает решения."
+      admission_rule: "Рекомендуется не микроменеджерить."
+    expected:
+      decision: BLOCK
+      errors:
+        - artifact_id: learning_goal
+          error_code: ERR_DECLARATIVE_GOAL
+        - artifact_id: decision_context
+          error_code: ERR_NO_DECISION_CONTEXT
+        - artifact_id: admission_rule
+          error_code: ERR_INVALID_ADMISSION_RULE
+
+  - id: GA03_block_goal_rule_mismatch
+    input:
+      learning_goal: "При падении KPI руководитель фиксирует план корректирующих действий с критериями проверки."
+      decision_context: "Триггер: KPI падают 2 месяца подряд. Альтернативы: (1) диагностика причин + план, (2) усилить контроль, (3) уволить."
+      admission_rule: "Запрещать проводить ретроспективы, если команда не прошла курс по коммуникации."
+    expected:
+      decision: BLOCK
+      errors:
+        - artifact_id: admission_rule
+          error_code: ERR_GOAL_RULE_MISMATCH
+

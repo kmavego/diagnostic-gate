@@ -1,0 +1,128 @@
+gate_id: PROBLEM_VALIDATION_01
+version: 1.1.0
+scope: course_design
+objective: "Фильтрация проектов без измеряемого бизнес-эффекта и запрет запуска обучения без операционализированной ошибки"
+
+# =========================================================
+# 1. Схема требуемых данных (Input Schema)
+# =========================================================
+artifacts:
+
+  - id: target_action
+    label: "Целевое действие сотрудника"
+    description: "Действие, которое сотрудник должен выполнять в реальной рабочей среде"
+    validation_rules:
+      forbidden_verbs:
+        - знать
+        - понимать
+        - осознавать
+        - изучить
+        - разбираться
+        - повышать
+      require_observable_result: true
+      observable_criteria:
+        must_include:
+          - decision_event        # момент выбора
+          - system_action         # действие в системе / процессе
+        forbidden_patterns:
+          - abstract_nouns_only   # только существительные без глаголов действия
+
+  - id: error_scenario
+    label: "Описание критической ошибки"
+    description: "Конкретный сценарий ошибочного действия в заданном контексте"
+    validation_rules:
+      min_words: 30
+      must_contain_context:
+        - когда
+        - если
+        - в случае
+      must_include_elements:
+        - actor                # кто совершает ошибку
+        - erroneous_action     # что именно делает неправильно
+        - consequence          # прямое последствие
+      forbidden_patterns:
+        - psychological_states_only   # чувства без действий
+        - vague_consequences          # «снижается эффективность», «возникают проблемы»
+
+  - id: economic_impact
+    label: "Цена ошибки"
+    description: "Измеримая стоимость ошибки в бизнес-метриках"
+    validation_rules:
+      type: numeric_range
+      unit:
+        - USD
+        - RUB
+        - Hours
+        - Conversion%
+      min_threshold:
+        USD: 500
+        RUB: 30000
+        Hours: 40
+        Conversion%: 1
+
+# =========================================================
+# 2. Логика запретов (Prohibition Logic)
+# =========================================================
+gates:
+
+  - id: semantic_censor
+    trigger_on: target_action
+    condition: contains(forbidden_verbs)
+    action: BLOCK
+    reason_class: LEXICAL_NOISE
+    error_code: ERR_VAGUE_OBJECTIVE
+    message: >
+      Остановка. Целевое действие описано через глагол состояния.
+      Опишите действие или решение, которое можно наблюдать или зафиксировать.
+
+  - id: observability_check
+    trigger_on: target_action
+    condition: missing(observable_criteria.must_include)
+    action: BLOCK
+    reason_class: NON_OBSERVABLE_ACTION
+    error_code: ERR_NON_OBSERVABLE_ACTION
+    message: >
+      Запрет. Действие не содержит наблюдаемого события или решения.
+      Без этого навык не может быть проверен или запрещён.
+
+  - id: structural_error_check
+    trigger_on: error_scenario
+    condition: missing(must_include_elements)
+    action: BLOCK
+    reason_class: STRUCTURAL_DEFECT
+    error_code: ERR_INCOMPLETE_ERROR_SCENARIO
+    message: >
+      Запрет. Ошибка описана без обязательных элементов
+      (кто действует, что делает, к чему это приводит).
+
+  - id: abstraction_blocker
+    trigger_on: error_scenario
+    condition: matches(forbidden_patterns)
+    action: BLOCK
+    reason_class: ABSTRACT_ERROR
+    error_code: ERR_ABSTRACT_ERROR
+    message: >
+      Остановка. Ошибка сформулирована абстрактно и не привязана
+      к конкретному инциденту из практики.
+
+  - id: impact_threshold_gate
+    trigger_on: economic_impact
+    condition: below(min_threshold)
+    action: BLOCK
+    reason_class: LOW_IMPACT
+    error_code: ERR_LOW_BUSINESS_IMPACT
+    message: >
+      Запрет. Цена ошибки ниже минимального порога значимости.
+      Обучение не может быть оправдано при таком уровне ущерба.
+
+# =========================================================
+# 3. Условия перехода состояний (State Transitions)
+# =========================================================
+transition:
+  from: DRAFT
+  to: VALIDATED_PROBLEM
+  require:
+    - all_artifacts_present: true
+    - all_gates_passed: true
+  lock_on_fail: true
+

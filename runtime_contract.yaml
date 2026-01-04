@@ -1,0 +1,87 @@
+spec_version: 1.0.0
+namespace: NDS_DIAGNOSTIC_GATE
+description: "Контракт исполнения: как UI вызывает движок и что получает обратно."
+
+principles:
+  no_implicit_inference: true
+  forbid_manual_state_override: true
+  deterministic_first: true
+  llm_is_validator_not_designer: true
+
+api:
+
+  - name: evaluate_gate
+    method: POST
+    path: /evaluate
+    request:
+      required:
+        - project_id
+        - state
+        - gate_id
+        - gate_version
+        - artifacts
+      schema:
+        project_id: string
+        state: string
+        gate_id: string
+        gate_version: string
+        artifacts: object
+    response:
+      schema:
+        decision: enum [PASS, BLOCK]
+        next_state: string|null
+        errors:
+          type: list
+          item_schema:
+            artifact_id: string
+            error_code: string
+            reason_class: string
+            message_variant: enum [short, normal, detailed]
+            message: string
+            offending_spans:
+              type: list
+              item_schema: { start: int, end: int, text: string }
+            missing_fields: [string]
+        validated_summary:
+          type: object
+          description: "Краткое резюме валидированных артефактов (для UI)."
+        audit_ref: string
+
+  - name: evaluate_state_transition
+    method: POST
+    path: /transition
+    request:
+      required:
+        - project_id
+        - from_state
+        - transition_id
+        - artifacts
+      schema:
+        project_id: string
+        from_state: string
+        transition_id: string
+        artifacts: object
+    response:
+      schema:
+        decision: enum [PASS, BLOCK]
+        to_state: string|null
+        gate_ref: object
+        errors: list
+
+  - name: export_protocol
+    method: POST
+    path: /protocol/export
+    request:
+      required: [project_id, format]
+      schema:
+        project_id: string
+        format: enum [JSON, PDF]
+    response:
+      schema:
+        download_ref: string
+
+error_contract:
+  require_reason_code: true
+  require_reason_class: true
+  block_is_terminal_for_transition: true
+
