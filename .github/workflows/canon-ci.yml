@@ -1,0 +1,30 @@
+name: Canon CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  canon:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dev deps
+        run: |
+          python3 -m pip install -U pip
+          python3 -m pip install -r requirements-dev.txt
+
+      - name: Run canon tests
+        run: |
+          python3 -m pytest -q
