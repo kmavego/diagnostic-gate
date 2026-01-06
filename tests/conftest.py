@@ -1,8 +1,14 @@
 from pathlib import Path
+import sys  # <-- ADD
 import yaml
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Ensure repo root is importable regardless of where pytest was started from.
+# This fixes imports like: from engine.evaluator import evaluate_gate
+if str(ROOT) not in sys.path:  # <-- ADD
+    sys.path.insert(0, str(ROOT))  # <-- ADD
 
 def load_yaml(path: Path):
     with path.open("r", encoding="utf-8") as f:

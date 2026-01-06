@@ -1,0 +1,234 @@
+openapi: 3.1.0
+info:
+  title: Diagnostic Gate Audit Contract
+  version: "0.1"
+  description: >
+    Additive audit contract for submissions list (summary) and submission detail (immutable protocol).
+
+paths:
+  /projects/{project_id}/submissions:
+    get:
+      operationId: list_project_submissions
+      summary: List audit submissions for a project (summary)
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            nullable: true
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [desc, asc]
+            default: desc
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditSubmissionListResponse"
+        "404":
+          description: Project not found
+        "422":
+          description: Validation error
+
+  /submissions/{submission_id}:
+    get:
+      operationId: read_submission
+      summary: Read immutable audit submission detail
+      parameters:
+        - name: submission_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditSubmissionDetail"
+        "404":
+          description: Submission not found
+        "422":
+          description: Validation error
+
+components:
+  schemas:
+    AuditSubmissionListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditSubmissionSummary"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque pagination cursor. Null when there are no more pages.
+
+    AuditSubmissionSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - submission_id
+        - project_id
+        - created_at
+        - decision
+        - gate_id
+        - gate_version
+      properties:
+        submission_id:
+          type: string
+        project_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        decision:
+          type: string
+          description: Decision returned by evaluator (stringly typed to preserve engine vocabulary).
+        gate_id:
+          type: string
+        gate_version:
+          type: string
+        state_before:
+          type: string
+          nullable: true
+          description: Project state before evaluation (may be null if not stored in summary).
+        state_after:
+          type: string
+          nullable: true
+          description: Project state after evaluation (may be null for reject/need_more or if not stored).
+
+    AuditSubmissionDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - submission_id
+        - project_id
+        - created_at
+        - gate_id
+        - gate_version
+        - state_before
+        - state_after
+        - request
+        - result
+        - immutability
+      properties:
+        submission_id:
+          type: string
+        project_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+        gate_id:
+          type: string
+        gate_version:
+          type: string
+
+        state_before:
+          type: string
+          nullable: true
+        state_after:
+          type: string
+          nullable: true
+
+        request:
+          $ref: "#/components/schemas/AuditEvaluateRequestSnapshot"
+        result:
+          $ref: "#/components/schemas/AuditEvaluateResultSnapshot"
+
+        immutability:
+          $ref: "#/components/schemas/AuditImmutability"
+
+    AuditEvaluateRequestSnapshot:
+      type: object
+      additionalProperties: false
+      required: [artifacts]
+      properties:
+        artifacts:
+          type: object
+          additionalProperties: true
+          description: Full immutable snapshot of artifacts submitted to evaluate.
+
+    AuditEvaluateResultSnapshot:
+      type: object
+      additionalProperties: false
+      required: [decision, errors]
+      properties:
+        decision:
+          type: string
+          description: Decision returned by evaluator (stringly typed to preserve engine vocabulary).
+        project_state:
+          type: string
+          nullable: true
+        next_state:
+          type: string
+          nullable: true
+        current_gate_id:
+          type: string
+          nullable: true
+        current_gate_version:
+          type: string
+          nullable: true
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditError"
+
+    AuditError:
+      type: object
+      additionalProperties: false
+      required: [code, path]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code (engine vocabulary).
+        path:
+          type: string
+          description: JSON Pointer to the artifact location (e.g. /scenario/actor).
+        message:
+          type: string
+          nullable: true
+          description: Optional short message. Must not include advice or recommendations.
+        meta:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Optional structured metadata for debugging/evolution (no hints).
+
+    AuditImmutability:
+      type: object
+      additionalProperties: false
+      required: [is_immutable, stored_at]
+      properties:
+        is_immutable:
+          type: boolean
+          enum: [true]
+          description: Always true for stored submissions.
+        stored_at:
+          type: string
+          format: date-time
+          description: When this submission was persisted.
+
