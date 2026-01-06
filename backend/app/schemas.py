@@ -64,7 +64,7 @@ class EvaluateResponse(BaseModel):
 
 # ============================================================
 # UI Schema (FROZEN CONTRACT)
-# This MUST match openapi.yaml UiSchemaResponse schema.
+# This MUST match OpenAPI spec (openapi/openapi.v0.1.yaml) schema: UiSchemaResponse.
 # ============================================================
 UiFieldType = Literal["json", "string", "text", "number", "boolean"]
 
