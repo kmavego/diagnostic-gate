@@ -42,3 +42,61 @@ def corpus_files(root):
 def gate_files(root):
     return sorted((root / "gates").glob("*.yaml"))
 
+# ===============================
+# HTTP / API test infrastructure
+# ===============================
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from backend.app.main import app
+from backend.app.db import Base, get_db
+
+
+@pytest.fixture(scope="session")
+def test_engine():
+    """
+    Отдельный SQLite in-memory engine для HTTP тестов.
+    """
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(bind=engine)
+    return engine
+
+
+@pytest.fixture(scope="function")
+def db(test_engine):
+    """
+    SQLAlchemy Session, откатывается после каждого теста.
+    """
+    TestingSessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=test_engine,
+    )
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture(scope="function")
+def client(db):
+    """
+    FastAPI TestClient с override get_db → test session.
+    """
+    def _override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = _override_get_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
