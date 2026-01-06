@@ -49,6 +49,7 @@ def gate_files(root):
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool # <-- важно
 
 from backend.app.main import app
 from backend.app.db import Base, get_db
@@ -58,10 +59,15 @@ from backend.app.db import Base, get_db
 def test_engine():
     """
     Отдельный SQLite in-memory engine для HTTP тестов.
+
+    IMPORTANT:
+    For SQLite in-memory, tables disappear across connections unless we use StaticPool
+    and "sqlite://" (single shared in-memory DB for the whole test session).
     """
     engine = create_engine(
-        "sqlite:///:memory:",
+        "sqlite://", # <-- важно (не sqlite:///:memory:)
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool, # <-- важно
     )
     Base.metadata.create_all(bind=engine)
     return engine
@@ -72,16 +78,22 @@ def db(test_engine):
     """
     SQLAlchemy Session, откатывается после каждого теста.
     """
+
+    connection = test_engine.connect()
+    transaction = connection.begin()
+
     TestingSessionLocal = sessionmaker(
         autocommit=False,
         autoflush=False,
-        bind=test_engine,
+        bind=connection,
     )
     session = TestingSessionLocal()
     try:
         yield session
     finally:
         session.close()
+        transaction.rollback()
+        connection.close()
 
 
 @pytest.fixture(scope="function")
