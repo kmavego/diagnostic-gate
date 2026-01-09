@@ -19,3 +19,14 @@ __pycache__/
 
 # docs (local)
 *.docx
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+frontend/.vite/
+
+
+# misc
+.DS_Store
