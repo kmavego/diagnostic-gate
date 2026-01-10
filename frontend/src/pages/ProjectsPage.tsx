@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { createProject, listProjects } from "../api/api";
 import type { Project } from "../api/types";
 import { ErrorBlock } from "../ui/ErrorBlock";
-import { UI_TEXT_RU } from "../canon/uiText.ru";
 
 export function ProjectsPage() {
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -13,22 +12,24 @@ export function ProjectsPage() {
 
   const nav = useNavigate();
 
-  async function refresh() {
-    try {
-      const items = await listProjects();
-      setProjects(items);
-    } catch {
-      // молча: список не критичен
-      setProjects([]);
+
+    async function refresh() {
+      try {
+        const items = await listProjects();
+        setProjects(items);
+      } catch {
+        // молча: список не критичен
+        setProjects([]);
+      }
     }
-  }
+
 
   useEffect(() => {
     refresh();
   }, []);
 
   async function onCreate() {
-    if (!name.trim()) return;
+    if (!name.trim()) return;    
     setBusy(true);
     setErr(null);
     try {
@@ -38,8 +39,9 @@ export function ProjectsPage() {
       // список может отсутствовать — не блокируем UX
       await refresh().catch(() => {});
 
-      // сразу переходим на страницу проекта
+      // СРАЗУ переходим на страницу проекта
       nav(`/projects/${p.id}`);
+
     } catch (e) {
       setErr(e);
     } finally {
@@ -49,17 +51,13 @@ export function ProjectsPage() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <header>
-        <div style={{ fontSize: 18, fontWeight: 900 }}>{UI_TEXT_RU.projects.title}</div>
-      </header>
-
       <section style={{ border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>{UI_TEXT_RU.projects.createTitle}</div>
+        <div style={{ fontWeight: 800, marginBottom: 8 }}>Create project</div>
         <div style={{ display: "flex", gap: 8 }}>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={UI_TEXT_RU.projects.namePlaceholder}
+            placeholder="optional name"
             style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
           />
           <button
@@ -67,36 +65,34 @@ export function ProjectsPage() {
             disabled={busy || !name.trim()}
             style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}
           >
-            {busy ? UI_TEXT_RU.projects.creating : UI_TEXT_RU.projects.createCta}
+            {busy ? "Creating..." : "Create"}
           </button>
         </div>
       </section>
 
-      {err ? <ErrorBlock title={UI_TEXT_RU.audit.errors.listError} error={err} /> : null}
+      {err ? <ErrorBlock title="API error" error={err} /> : null}
 
       <section style={{ border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>{UI_TEXT_RU.projects.listTitle}</div>
+        <div style={{ fontWeight: 800, marginBottom: 8 }}>Projects</div>
 
         {projects === null ? (
-          <div>{UI_TEXT_RU.common.loading}</div>
+          <div>Loading…</div>
         ) : projects.length === 0 ? (
-          <div style={{ opacity: 0.7 }}>{UI_TEXT_RU.projects.listUnavailable}</div>
+          <div style={{ opacity: 0.7 }}>No projects (or list endpoint missing).</div>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
             {projects.map((p) => (
               <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>
-                    <Link to={`/projects/${p.id}`}>{(p as any).name ?? (p as any).title ?? p.id}</Link>
+                    <Link to={`/projects/${p.id}`}>{p.title ?? p.id}</Link>
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    {UI_TEXT_RU.projects.row.state}: {(p as any).state ?? UI_TEXT_RU.common.dash} ·{" "}
-                    {UI_TEXT_RU.projects.row.createdAt}: {(p as any).created_at ?? UI_TEXT_RU.common.dash}
+                    state: {p.current_state ?? "—"} · created: {p.created_at ?? "—"}
                   </div>
                 </div>
-
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <Link to={`/projects/${p.id}/audit`}>{UI_TEXT_RU.projects.row.audit}</Link>
+                  <Link to={`/projects/${p.id}/audit`}>audit</Link>
                 </div>
               </div>
             ))}
@@ -106,3 +102,4 @@ export function ProjectsPage() {
     </div>
   );
 }
+

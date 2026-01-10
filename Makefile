@@ -73,3 +73,4 @@ clean:
 	rm -rf $(FRONTEND_DIR)/node_modules
 	rm -f  $(FRONTEND_DIR)/package-lock.json
 	@echo "cleaned: $(VENV_DIR), node_modules, package-lock.json"
+

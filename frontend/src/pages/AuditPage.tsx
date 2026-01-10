@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { listSubmissionsByProject, getSubmissionDetail } from "../api/api";
-import type { Submission } from "../api/types";
+import type { AuditDetail, Submission } from "../api/types";
 import { ErrorBlock } from "../ui/ErrorBlock";
 import { JsonTextarea } from "../ui/JsonTextarea";
-import { UI_TEXT_RU } from "../canon/uiText.ru";
-import type { Decision } from "../canon/protocol.ru";
-import { decisionTitleRu, decisionHintRu } from "../canon/protocol.ru";
+
+type Decision = "allow" | "reject" | "need_more" | "error" | string;
 
 type NormalizedError = {
   code?: string;
@@ -16,8 +15,8 @@ type NormalizedError = {
 };
 
 /**
- * We keep it tolerant because your existing `Submission` type
- * might not include audit-specific list fields yet.
+ * List item stays tolerant because your Submission type is shared
+ * and can be thinner than audit list view fields.
  */
 type AuditListItem = Submission & {
   submission_id?: string;
@@ -29,35 +28,11 @@ type AuditListItem = Submission & {
   current_gate_id?: string;
   current_gate_version?: string;
 
-  state_before?: string;
-  state_after?: string;
+  state_before?: string | null;
+  state_after?: string | null;
 
   // legacy shapes that might exist
   result?: unknown;
-};
-
-type AuditDetail = {
-  submission_id?: string;
-  created_at?: string;
-
-  // explicit immutability block (preferred)
-  immutability?: unknown;
-
-  request?: unknown;
-  result?: unknown;
-
-  // alternate / legacy keys
-  payload?: unknown;
-  response?: unknown;
-  output?: unknown;
-
-  decision?: Decision;
-  gate_id?: string;
-  gate_version?: string;
-  current_gate_id?: string;
-  current_gate_version?: string;
-  state_before?: string;
-  state_after?: string;
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -69,7 +44,7 @@ function asString(v: unknown): string | undefined {
 }
 
 function prettyJson(v: unknown): string {
-  if (v === undefined) return UI_TEXT_RU.common.dash;
+  if (v === undefined) return "—";
   try {
     return JSON.stringify(v, null, 2);
   } catch {
@@ -78,7 +53,7 @@ function prettyJson(v: unknown): string {
 }
 
 function safeDecisionLabel(d: Decision | undefined): string {
-  if (!d) return UI_TEXT_RU.common.dash;
+  if (!d) return "—";
   return d;
 }
 
@@ -108,9 +83,6 @@ function parseEpoch(iso?: string): number {
   return Number.isFinite(t) ? t : Number.NaN;
 }
 
-/**
- * IMPORTANT: guard against non-array inputs.
- */
 function sortByCreatedAtDesc<T extends { created_at?: string }>(maybeItems: unknown): T[] {
   if (!Array.isArray(maybeItems)) return [];
   const copy = [...(maybeItems as T[])];
@@ -148,6 +120,7 @@ function normalizeSubmissionsListResponse(payload: unknown): AuditListItem[] {
 
 /**
  * Extract "errors" array from result payload (no interpretation).
+ * Stays tolerant because error shapes may vary (loc/msg/etc).
  */
 function extractErrorsFromResult(result: unknown): NormalizedError[] {
   if (!isRecord(result)) return [];
@@ -184,13 +157,14 @@ function extractErrorsFromResult(result: unknown): NormalizedError[] {
 
 /**
  * Extract protocol-ish fields from engine-like results.
+ * Used only as fallback for header fields (gate/state/decision).
  */
 function extractProtocol(result: unknown): {
   decision?: Decision;
-  state_before?: string;
-  state_after?: string;
-  gate_id?: string;
-  gate_version?: string;
+  state_before?: string | null;
+  state_after?: string | null;
+  gate_id?: string | null;
+  gate_version?: string | null;
   errors: NormalizedError[];
 } {
   if (!isRecord(result)) return { errors: [] };
@@ -200,50 +174,30 @@ function extractProtocol(result: unknown): {
   const state_before =
     asString((result as any).project_state) ??
     asString((result as any).state_before) ??
-    asString((result as any).stateBefore);
+    asString((result as any).stateBefore) ??
+    null;
 
   const state_after =
     asString((result as any).next_state) ??
     asString((result as any).state_after) ??
-    asString((result as any).stateAfter);
+    asString((result as any).stateAfter) ??
+    null;
 
   const gate_id =
     asString((result as any).gate_id) ??
     asString((result as any).current_gate_id) ??
-    asString((result as any).currentGateId);
+    asString((result as any).currentGateId) ??
+    null;
 
   const gate_version =
     asString((result as any).gate_version) ??
     asString((result as any).current_gate_version) ??
-    asString((result as any).currentGateVersion);
+    asString((result as any).currentGateVersion) ??
+    null;
 
   const errors = extractErrorsFromResult(result);
 
   return { decision, state_before, state_after, gate_id, gate_version, errors };
-}
-
-/**
- * Extract artifacts snapshot from request/payload shapes (tolerant).
- */
-function extractArtifactsSnapshot(container: unknown): unknown | undefined {
-  if (!isRecord(container)) return undefined;
-
-  // preferred: request.artifacts
-  if ("request" in container && isRecord((container as any).request)) {
-    const req = (container as any).request;
-    if (isRecord(req) && "artifacts" in req) return (req as any).artifacts;
-  }
-
-  // common: artifacts at top level
-  if ("artifacts" in container) return (container as any).artifacts;
-
-  // common: payload.input.artifacts
-  if ("input" in container && isRecord((container as any).input)) {
-    const input = (container as any).input;
-    if (isRecord(input) && "artifacts" in input) return (input as any).artifacts;
-  }
-
-  return undefined;
 }
 
 function Row(props: { label: string; value: React.ReactNode; monospace?: boolean }) {
@@ -251,9 +205,7 @@ function Row(props: { label: string; value: React.ReactNode; monospace?: boolean
   return (
     <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 8, alignItems: "baseline" }}>
       <div style={{ fontSize: 12, opacity: 0.7 }}>{label}</div>
-      <div style={{ fontSize: 12, wordBreak: "break-word", fontFamily: monospace ? "monospace" : undefined }}>
-        {value}
-      </div>
+      <div style={{ fontSize: 12, wordBreak: "break-word", fontFamily: monospace ? "monospace" : undefined }}>{value}</div>
     </div>
   );
 }
@@ -299,7 +251,7 @@ export function AuditPage() {
     setDetailErr(null);
     setDetailLoading(true);
     try {
-      const d = (await getSubmissionDetail(submissionId)) as AuditDetail;
+      const d = await getSubmissionDetail(submissionId);
       setDetail(d);
     } catch (e) {
       setDetailErr(e);
@@ -334,8 +286,8 @@ export function AuditPage() {
     decision?: Decision;
     gate_id?: string;
     gate_version?: string;
-    state_before?: string;
-    state_after?: string;
+    state_before?: string | null;
+    state_after?: string | null;
     submission_id?: string;
   } {
     const decision = (s.decision as Decision | undefined) ?? undefined;
@@ -345,8 +297,8 @@ export function AuditPage() {
 
     const proto = extractProtocol((s as any).result);
 
-    const state_before = s.state_before ?? proto.state_before ?? undefined;
-    const state_after = s.state_after ?? proto.state_after ?? undefined;
+    const state_before = (s.state_before ?? proto.state_before) ?? null;
+    const state_after = (s.state_after ?? proto.state_after) ?? null;
 
     return {
       created_at: s.created_at ?? undefined,
@@ -359,39 +311,34 @@ export function AuditPage() {
     };
   }
 
+  // CANON: strict locations for request/result/immutability
   const detailRequest = useMemo(() => {
-    if (!detail) return undefined;
-    if (detail.request !== undefined) return detail.request;
-    if (detail.payload !== undefined) return detail.payload;
-    return undefined;
+    return detail?.request;
   }, [detail]);
 
   const detailResult = useMemo(() => {
-    if (!detail) return undefined;
-    if (detail.result !== undefined) return detail.result;
-    if (detail.response !== undefined) return detail.response;
-    if (detail.output !== undefined) return detail.output;
-    return undefined;
+    return detail?.result;
   }, [detail]);
 
   const detailArtifacts = useMemo(() => {
-    const fromReq = extractArtifactsSnapshot({ request: detailRequest });
-    if (fromReq !== undefined) return fromReq;
-    return extractArtifactsSnapshot(detailRequest);
-  }, [detailRequest]);
+    return detail?.request?.artifacts;
+  }, [detail]);
 
+  // Header protocol fields: prefer top-level, fallback to result-derived
   const detailProtocol = useMemo(() => {
     const proto = extractProtocol(detailResult);
 
-    const gate_id = detail?.gate_id ?? detail?.current_gate_id ?? proto.gate_id;
-    const gate_version = detail?.gate_version ?? detail?.current_gate_version ?? proto.gate_version;
+    const gate_id = (detail?.gate_id ?? proto.gate_id) ?? undefined;
+    const gate_version = (detail?.gate_version ?? proto.gate_version) ?? undefined;
 
-    const state_before = detail?.state_before ?? proto.state_before;
-    const state_after = detail?.state_after ?? proto.state_after;
+    const state_before = (detail?.state_before ?? proto.state_before) ?? undefined;
+    const state_after = (detail?.state_after ?? proto.state_after) ?? undefined;
 
-    const decision = (detail?.decision ?? proto.decision) as Decision | undefined;
+    const decision = (detailResult as any)?.decision ?? detail?.result?.decision ?? detail?.result?.decision ?? proto.decision;
 
-    return { decision, gate_id, gate_version, state_before, state_after, errors: proto.errors };
+    const errors = extractErrorsFromResult(detailResult);
+
+    return { decision: decision as Decision | undefined, gate_id, gate_version, state_before, state_after, errors };
   }, [detail, detailResult]);
 
   const backToProjectHref = `/projects/${projectId}`;
@@ -402,27 +349,25 @@ export function AuditPage() {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 900 }}>{UI_TEXT_RU.audit.title}</div>
+          <div style={{ fontSize: 18, fontWeight: 900 }}>Audit</div>
 
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            {UI_TEXT_RU.audit.header.project}:{" "}
-            <span style={{ fontFamily: "monospace" }}>{projectId || UI_TEXT_RU.common.dash}</span>
+            Project: <span style={{ fontFamily: "monospace" }}>{projectId || "—"}</span>
           </div>
 
           {submissionId ? (
             <div style={{ fontSize: 12, opacity: 0.7 }}>
-              {UI_TEXT_RU.audit.header.submission}:{" "}
-              <span style={{ fontFamily: "monospace" }}>{submissionId}</span>
+              Submission: <span style={{ fontFamily: "monospace" }}>{submissionId}</span>
             </div>
           ) : null}
 
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            <Link to={backToProjectHref}>{UI_TEXT_RU.audit.links.backToProject}</Link>
+            <Link to={backToProjectHref}>← back to project</Link>
           </div>
 
           {submissionId ? (
             <div style={{ fontSize: 12, opacity: 0.7 }}>
-              <Link to={backToAuditListHref}>{UI_TEXT_RU.audit.links.backToList}</Link>
+              <Link to={backToAuditListHref}>← back to audit list</Link>
             </div>
           ) : null}
         </div>
@@ -433,57 +378,57 @@ export function AuditPage() {
               onClick={refreshDetail}
               style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}
             >
-              {UI_TEXT_RU.common.refreshDetail}
+              Refresh detail
             </button>
           ) : (
             <button
               onClick={refreshList}
               style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}
             >
-              {UI_TEXT_RU.common.refreshList}
+              Refresh list
             </button>
           )}
         </div>
       </div>
 
       {/* Errors */}
-      {listErr ? <ErrorBlock title={UI_TEXT_RU.audit.errors.listError} error={listErr} /> : null}
-      {detailErr ? <ErrorBlock title={UI_TEXT_RU.audit.errors.detailError} error={detailErr} /> : null}
+      {listErr ? <ErrorBlock title="audit list error" error={listErr} /> : null}
+      {detailErr ? <ErrorBlock title="audit detail error" error={detailErr} /> : null}
 
       {/* LIST VIEW */}
       {!submissionId ? (
         <section style={{ border: "1px solid #eee", borderRadius: 10, padding: 12, minWidth: 0 }}>
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>{UI_TEXT_RU.audit.list.title}</div>
+          <div style={{ fontWeight: 800, marginBottom: 8 }}>Submissions</div>
 
           {items === null ? (
-            <div>{UI_TEXT_RU.common.loading}</div>
+            <div>Loading…</div>
           ) : items.length === 0 ? (
-            <div style={{ opacity: 0.7 }}>{UI_TEXT_RU.audit.list.empty}</div>
+            <div style={{ opacity: 0.7 }}>No submissions yet.</div>
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr>
                     <th align="left" style={{ borderBottom: "1px solid #ddd", padding: "6px 4px" }}>
-                      {UI_TEXT_RU.audit.list.table.createdAt}
+                      created_at
                     </th>
                     <th align="left" style={{ borderBottom: "1px solid #ddd", padding: "6px 4px" }}>
-                      {UI_TEXT_RU.audit.list.table.decision}
+                      decision
                     </th>
                     <th align="left" style={{ borderBottom: "1px solid #ddd", padding: "6px 4px" }}>
-                      {UI_TEXT_RU.audit.list.table.gateId}
+                      gate_id
                     </th>
                     <th align="left" style={{ borderBottom: "1px solid #ddd", padding: "6px 4px" }}>
-                      {UI_TEXT_RU.audit.list.table.gateVersion}
+                      gate_version
                     </th>
                     <th align="left" style={{ borderBottom: "1px solid #ddd", padding: "6px 4px" }}>
-                      {UI_TEXT_RU.audit.list.table.stateBefore}
+                      state_before
                     </th>
                     <th align="left" style={{ borderBottom: "1px solid #ddd", padding: "6px 4px" }}>
-                      {UI_TEXT_RU.audit.list.table.stateAfter}
+                      state_after
                     </th>
                     <th align="left" style={{ borderBottom: "1px solid #ddd", padding: "6px 4px" }}>
-                      {UI_TEXT_RU.audit.list.table.submissionId}
+                      submission_id
                     </th>
                   </tr>
                 </thead>
@@ -496,7 +441,7 @@ export function AuditPage() {
                     return (
                       <tr key={sid}>
                         <td style={{ borderBottom: "1px solid #f2f2f2", padding: "6px 4px", whiteSpace: "nowrap" }}>
-                          {row.created_at ?? UI_TEXT_RU.common.dash}
+                          {row.created_at ?? "—"}
                         </td>
 
                         <td style={{ borderBottom: "1px solid #f2f2f2", padding: "6px 4px", whiteSpace: "nowrap" }}>
@@ -511,11 +456,11 @@ export function AuditPage() {
                             fontFamily: "monospace",
                           }}
                         >
-                          {row.gate_id ?? UI_TEXT_RU.common.dash}
+                          {row.gate_id ?? "—"}
                         </td>
 
                         <td style={{ borderBottom: "1px solid #f2f2f2", padding: "6px 4px", whiteSpace: "nowrap" }}>
-                          {row.gate_version ?? UI_TEXT_RU.common.dash}
+                          {row.gate_version ?? "—"}
                         </td>
 
                         <td
@@ -526,7 +471,7 @@ export function AuditPage() {
                             fontFamily: "monospace",
                           }}
                         >
-                          {row.state_before ?? UI_TEXT_RU.common.dash}
+                          {row.state_before ?? "—"}
                         </td>
 
                         <td
@@ -537,7 +482,7 @@ export function AuditPage() {
                             fontFamily: "monospace",
                           }}
                         >
-                          {row.state_after ?? UI_TEXT_RU.common.dash}
+                          {row.state_after ?? "—"}
                         </td>
 
                         <td style={{ borderBottom: "1px solid #f2f2f2", padding: "6px 4px", fontFamily: "monospace" }}>
@@ -552,7 +497,7 @@ export function AuditPage() {
                               {row.submission_id}
                             </a>
                           ) : (
-                            UI_TEXT_RU.common.dash
+                            "—"
                           )}
                         </td>
                       </tr>
@@ -562,11 +507,9 @@ export function AuditPage() {
               </table>
 
               <details style={{ marginTop: 10 }}>
-                <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.8 }}>
-                  {UI_TEXT_RU.audit.list.rawList.summary}
-                </summary>
+                <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.8 }}>Show raw list response</summary>
                 <div style={{ marginTop: 8 }}>
-                  <JsonTextarea label={UI_TEXT_RU.audit.list.rawList.label} value={prettyJson(rawListPayload)} readOnly />
+                  <JsonTextarea label="raw list payload" value={prettyJson(rawListPayload)} readOnly />
                 </div>
               </details>
             </div>
@@ -578,82 +521,59 @@ export function AuditPage() {
       {submissionId ? (
         <div style={{ display: "grid", gap: 16 }}>
           <section style={{ border: "1px solid #eee", borderRadius: 10, padding: 12, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>{UI_TEXT_RU.audit.detail.sections.snapshot}</div>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>Immutable snapshot</div>
 
             {detailLoading ? (
-              <div>{UI_TEXT_RU.common.loading}</div>
+              <div>Loading…</div>
             ) : !detail ? (
-              <div style={{ opacity: 0.7 }}>{UI_TEXT_RU.audit.detail.loadingEmpty}</div>
+              <div style={{ opacity: 0.7 }}>No detail loaded.</div>
             ) : (
               <div style={{ display: "grid", gap: 6 }}>
+                <Row label="submission_id" value={detail.submission_id ?? submissionId} monospace />
+                <Row label="created_at" value={detail.created_at ?? "—"} />
                 <Row
-                  label={UI_TEXT_RU.decision.fields.submission}
-                  value={detail.submission_id ?? submissionId}
-                  monospace
-                />
-                <Row label={UI_TEXT_RU.audit.list.table.createdAt} value={detail.created_at ?? UI_TEXT_RU.common.dash} />
-                <Row
-                  label={UI_TEXT_RU.decision.fields.decision}
+                  label="decision"
                   value={
-                    <span style={decisionBadgeStyle(detailProtocol.decision)}>
-                      {safeDecisionLabel(detailProtocol.decision)}
-                    </span>
+                    <span style={decisionBadgeStyle(detailProtocol.decision)}>{safeDecisionLabel(detailProtocol.decision)}</span>
                   }
                 />
-                <Row label={UI_TEXT_RU.decision.fields.gate} value={detailProtocol.gate_id ?? UI_TEXT_RU.common.dash} monospace />
-                <Row label={UI_TEXT_RU.decision.fields.canon} value={detailProtocol.gate_version ?? UI_TEXT_RU.common.dash} />
-                <Row label={UI_TEXT_RU.decision.fields.stateBefore} value={detailProtocol.state_before ?? UI_TEXT_RU.common.dash} monospace />
-                <Row label={UI_TEXT_RU.decision.fields.stateAfter} value={detailProtocol.state_after ?? UI_TEXT_RU.common.dash} monospace />
+                <Row label="gate_id" value={detailProtocol.gate_id ?? "—"} monospace />
+                <Row label="gate_version" value={detailProtocol.gate_version ?? "—"} />
+                <Row label="state_before" value={detailProtocol.state_before ?? "—"} monospace />
+                <Row label="state_after" value={detailProtocol.state_after ?? "—"} monospace />
 
-                <div style={{ marginTop: 8, borderTop: "1px solid #f2f2f2", paddingTop: 10 }}>
-                  <div style={{ fontWeight: 900, fontSize: 14 }}>
-                    {decisionTitleRu(detailProtocol.decision)}
-                  </div>
-                  <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
-                    {decisionHintRu(detailProtocol.decision)}
-                  </div>
+                <div style={{ marginTop: 10, borderTop: "1px solid #f2f2f2", paddingTop: 10 }}>
+                  <JsonTextarea label="immutability" value={prettyJson(detail.immutability)} readOnly />
                 </div>
-
-                {detail.immutability !== undefined ? (
-                  <div style={{ marginTop: 10, borderTop: "1px solid #f2f2f2", paddingTop: 10 }}>
-                    <JsonTextarea label={UI_TEXT_RU.audit.detail.immutability} value={prettyJson(detail.immutability)} readOnly />
-                  </div>
-                ) : null}
               </div>
             )}
           </section>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <section style={{ border: "1px solid #eee", borderRadius: 10, padding: 12, minWidth: 0 }}>
-              <div style={{ fontWeight: 800, marginBottom: 8 }}>{UI_TEXT_RU.audit.detail.sections.sent}</div>
-              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>{UI_TEXT_RU.audit.detail.sentHint}</div>
+              <div style={{ fontWeight: 800, marginBottom: 8 }}>What was sent</div>
+              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>request.artifacts</div>
 
-              {detailLoading ? (
-                <div>{UI_TEXT_RU.common.loading}</div>
-              ) : (
-                <JsonTextarea label={UI_TEXT_RU.audit.detail.artifacts} value={prettyJson(detailArtifacts)} readOnly />
-              )}
+              {detailLoading ? <div>Loading…</div> : <JsonTextarea label="artifacts" value={prettyJson(detailArtifacts)} readOnly />}
             </section>
 
             <section style={{ border: "1px solid #eee", borderRadius: 10, padding: 12, minWidth: 0 }}>
-              <div style={{ fontWeight: 800, marginBottom: 8 }}>{UI_TEXT_RU.audit.detail.sections.returned}</div>
-              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>{UI_TEXT_RU.audit.detail.returnedHint}</div>
+              <div style={{ fontWeight: 800, marginBottom: 8 }}>What engine returned</div>
+              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>result (decision, errors, meta)</div>
 
               {detailLoading ? (
-                <div>{UI_TEXT_RU.common.loading}</div>
+                <div>Loading…</div>
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>
                   <Row
-                    label={UI_TEXT_RU.decision.fields.decision}
+                    label="decision"
                     value={
-                      <span style={decisionBadgeStyle(detailProtocol.decision)}>
-                        {safeDecisionLabel(detailProtocol.decision)}
-                      </span>
+                      <span style={decisionBadgeStyle(detailProtocol.decision)}>{safeDecisionLabel(detailProtocol.decision)}</span>
                     }
                   />
 
                   <div style={{ borderTop: "1px solid #f2f2f2", paddingTop: 10 }}>
-                    <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 12 }}>{UI_TEXT_RU.decision.errors.title}</div>
+                    <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 12 }}>Errors</div>
 
                     {detailProtocol.errors.length > 0 ? (
                       <div style={{ display: "grid", gap: 8 }}>
@@ -668,21 +588,15 @@ export function AuditPage() {
                             }}
                           >
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-                              <span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 12 }}>
-                                {e.code ?? UI_TEXT_RU.common.dash}
-                              </span>
-                              <span style={{ fontFamily: "monospace", fontSize: 12, opacity: 0.85 }}>
-                                {e.path ?? UI_TEXT_RU.common.dash}
-                              </span>
+                              <span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 12 }}>{e.code ?? "—"}</span>
+                              <span style={{ fontFamily: "monospace", fontSize: 12, opacity: 0.85 }}>{e.path ?? "—"}</span>
                             </div>
-                            {e.message ? (
-                              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>{e.message}</div>
-                            ) : null}
+                            {e.message ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>{e.message}</div> : null}
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>{UI_TEXT_RU.decision.errors.empty}</div>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>—</div>
                     )}
                   </div>
 
@@ -697,12 +611,12 @@ export function AuditPage() {
                         background: showRawResult ? "#fafafa" : "#fff",
                       }}
                     >
-                      {showRawResult ? UI_TEXT_RU.decision.raw.hide : UI_TEXT_RU.decision.raw.show}
+                      {showRawResult ? "Hide raw result" : "Show raw result"}
                     </button>
 
                     {showRawResult ? (
                       <div style={{ marginTop: 10 }}>
-                        <JsonTextarea label={UI_TEXT_RU.audit.detail.rawResult} value={prettyJson(detailResult)} readOnly />
+                        <JsonTextarea label="raw result" value={prettyJson(detailResult)} readOnly />
                       </div>
                     ) : null}
                   </div>
@@ -712,19 +626,19 @@ export function AuditPage() {
           </div>
 
           <section style={{ border: "1px solid #eee", borderRadius: 10, padding: 12, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>{UI_TEXT_RU.audit.detail.sections.rawSnapshots}</div>
-            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>{UI_TEXT_RU.audit.detail.rawSnapshotsHint}</div>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>Protocol snapshots (raw)</div>
+            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>As-is. No interpretation.</div>
 
             {detailLoading ? (
-              <div>{UI_TEXT_RU.common.loading}</div>
+              <div>Loading…</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 <div style={{ border: "1px solid #f2f2f2", borderRadius: 10, padding: 10, minWidth: 0 }}>
-                  <JsonTextarea label={UI_TEXT_RU.audit.detail.rawRequest} value={prettyJson(detailRequest)} readOnly />
+                  <JsonTextarea label="raw request" value={prettyJson(detailRequest)} readOnly />
                 </div>
 
                 <div style={{ border: "1px solid #f2f2f2", borderRadius: 10, padding: 10, minWidth: 0 }}>
-                  <JsonTextarea label={UI_TEXT_RU.audit.detail.rawResult} value={prettyJson(detailResult)} readOnly />
+                  <JsonTextarea label="raw result" value={prettyJson(detailResult)} readOnly />
                 </div>
               </div>
             )}
@@ -734,3 +648,4 @@ export function AuditPage() {
     </div>
   );
 }
+

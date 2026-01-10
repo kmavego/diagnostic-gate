@@ -1,4 +1,5 @@
-import type { EvaluateRequest, EvaluateResponse, Project, Submission, UiSchemaResponse } from "./types";
+import type { EvaluateRequest, EvaluateResponse, Project, Submission, UiSchemaResponse, AuditDetail } from "./types";
+
 
 /**
  * Важное:
@@ -84,8 +85,8 @@ export async function listSubmissionsByProject(projectId: string): Promise<Submi
   return http<Submission[]>(`/projects/${projectId}/submissions`, { method: "GET" });
 }
 
-export async function getSubmissionDetail(submissionId: string): Promise<Submission> {
-  return http<Submission>(`/submissions/${encodeURIComponent(submissionId)}`, { method: "GET" });
+export async function getSubmissionDetail(submissionId: string): Promise<AuditDetail> {
+  return http<AuditDetail>(`/submissions/${encodeURIComponent(submissionId)}`, { method: "GET" });
 }
 
 

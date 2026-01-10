@@ -42,3 +42,34 @@ export type Submission = {
   result?: unknown;
 };
 
+export type AuditDetail = {
+  submission_id: string;
+  project_id: string;
+  created_at: string;
+
+  immutability: {
+    is_immutable: boolean;
+    stored_at: string;
+  };
+
+  request: {
+    artifacts: unknown;
+  };
+
+  result: {
+    decision: string;
+    errors?: Array<{
+      code?: string;
+      path?: string;
+      message?: string;
+      meta?: unknown;
+    }>;
+    [k: string]: unknown;
+  };
+
+  gate_id?: string;
+  gate_version?: string;
+  state_before?: string;
+  state_after?: string;
+};
+

@@ -1,29 +1,53 @@
 import React from "react";
 
-export function JsonTextarea(props: {
+type Props = {
   label: string;
   value: string;
-  onChange: (v: string) => void;
+
+  /**
+   * Optional: used only when not readOnly.
+   * For audit viewer, we pass readOnly and omit onChange.
+   */
+  onChange?: (v: string) => void;
+
   rows?: number;
-}) {
+
+  /**
+   * Canon: allow read-only rendering for immutable snapshots.
+   */
+  readOnly?: boolean;
+};
+
+export function JsonTextarea(props: Props) {
+  const { label, value, onChange, rows = 12, readOnly = false } = props;
+
   return (
-    <label style={{ display: "block" }}>
-      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{props.label}</div>
+    <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+      <div style={{ fontSize: 12, fontWeight: 800 }}>{label}</div>
+
       <textarea
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        rows={props.rows ?? 18}
+        value={value}
+        rows={rows}
+        readOnly={readOnly}
+        onChange={(e) => {
+          if (readOnly) return;
+          onChange?.(e.target.value);
+        }}
         spellCheck={false}
         style={{
           width: "100%",
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+          minWidth: 0,
+          fontFamily: "monospace",
           fontSize: 12,
-          padding: 10,
-          borderRadius: 8,
+          lineHeight: 1.35,
           border: "1px solid #ddd",
+          borderRadius: 10,
+          padding: 10,
+          resize: "vertical",
+          background: readOnly ? "#fafafa" : "#fff",
         }}
       />
-    </label>
+    </div>
   );
 }
 

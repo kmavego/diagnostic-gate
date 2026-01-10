@@ -4,18 +4,30 @@ import { evaluateProject, getUiSchema } from "../api/api";
 import type { EvaluateResponse, UiSchemaResponse } from "../api/types";
 import { JsonTextarea } from "../ui/JsonTextarea";
 import { ErrorBlock } from "../ui/ErrorBlock";
-import { UI_TEXT_RU } from "../canon/uiText.ru";
-import { decisionHintRu, decisionTitleRu, type Decision } from "../canon/protocol.ru";
+
+const ARTIFACTS_TEMPLATE = {
+  scenario: {
+    actor: "",
+    wrong_action: "",
+    consequence: "",
+  },
+  cost_of_error: {
+    amount: 0,
+    currency: "RUB",
+    rationale: "",
+  },
+  evidence: [],
+};
 
 function safeParseJson(text: string): { ok: true; value: any } | { ok: false; error: string } {
   try {
     const v = JSON.parse(text);
     if (v === null || typeof v !== "object" || Array.isArray(v)) {
-      return { ok: false, error: "Артефакты должны быть JSON-объектом." };
+      return { ok: false, error: "artifacts must be a JSON object" };
     }
     return { ok: true, value: v };
   } catch (e) {
-    return { ok: false, error: "Некорректный JSON." };
+    return { ok: false, error: (e as any)?.message ?? "invalid JSON" };
   }
 }
 
@@ -31,9 +43,25 @@ function decisionBadge(decision: string) {
   return <span style={base}>{decision}</span>;
 }
 
-function extractViolationCode(e: any): string | undefined {
-  if (!e) return undefined;
-  return e.code ?? e.error_code ?? e.errorCode ?? e.type ?? undefined;
+function decisionText(decision: string) {
+  switch (decision) {
+    case "allow":
+      return { title: "Допуск получен", text: "Гейт пройден. Можно переходить дальше." };
+    case "need_more":
+      return {
+        title: "Недостаточно данных",
+        text: "Гейт не может быть оценен. Нужно добавить недостающие артефакты.",
+      };
+    case "reject":
+      return {
+        title: "Запрет",
+        text: "Проект не допускается. Ниже — причины запрета и что именно нужно исправить.",
+      };
+    case "error":
+      return { title: "Ошибка", text: "Во время оценки произошла ошибка. См. детали ниже." };
+    default:
+      return { title: "Решение", text: "" };
+  }
 }
 
 export function ProjectPage() {
@@ -43,7 +71,7 @@ export function ProjectPage() {
   const [ui, setUi] = useState<UiSchemaResponse | null>(null);
   const [uiErr, setUiErr] = useState<unknown>(null);
 
-  const [artifactsText, setArtifactsText] = useState<string>("");
+  const [artifactsText, setArtifactsText] = useState<string>("{}");
   const parsed = useMemo(() => safeParseJson(artifactsText), [artifactsText]);
 
   const [evalBusy, setEvalBusy] = useState(false);
@@ -81,7 +109,7 @@ export function ProjectPage() {
     })();
   }, [projectId]);
 
-  // scroll to artifacts only if backend explicitly points at artifacts
+  // ✅ Scroll + focus to artifacts after evaluate when it's actionable
   useEffect(() => {
     if (!evalRes) return;
     if (evalRes.decision !== "reject" && evalRes.decision !== "need_more") return;
@@ -117,39 +145,29 @@ export function ProjectPage() {
     }
   }
 
-  const decision = (evalRes?.decision ?? "") as Decision;
-
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 900 }}>
-            {UI_TEXT_RU.admission.title} · <span style={{ fontFamily: "monospace" }}>{projectId}</span>
-          </div>
-
-          <div style={{ fontSize: 12, opacity: 0.7 }}>{UI_TEXT_RU.admission.subtitle}</div>
-
+          <div style={{ fontSize: 18, fontWeight: 900 }}>Project {projectId}</div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            <Link to={`/projects/${projectId}/audit`}>{UI_TEXT_RU.audit.title}</Link>
+            <Link to={`/projects/${projectId}/audit`}>Open audit</Link>
           </div>
         </div>
-
         <div>
-          <Link to="/">{UI_TEXT_RU.common.back}</Link>
+          <Link to="/">← back</Link>
         </div>
       </div>
 
-      {/* UI schema */}
       <section style={{ border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>Контракт предъявления артефактов</div>
+        <div style={{ fontWeight: 800, marginBottom: 8 }}>UI schema</div>
         {ui === null ? (
-          <div>{UI_TEXT_RU.common.loading}</div>
+          <div>Loading…</div>
         ) : uiErr ? (
-          <ErrorBlock title="Ошибка получения контракта Gate" error={uiErr} />
+          <ErrorBlock title="ui-schema error" error={uiErr} />
         ) : (
           <details>
-            <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.8 }}>Показать контракт Gate</summary>
+            <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.8 }}>Show schema</summary>
             <pre style={{ margin: "10px 0 0", fontSize: 12, whiteSpace: "pre-wrap" }}>
               {JSON.stringify(ui, null, 2)}
             </pre>
@@ -157,10 +175,8 @@ export function ProjectPage() {
         )}
       </section>
 
-      {/* Artifacts */}
       <section ref={artifactsBlockRef} style={{ border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
-        <div style={{ fontWeight: 800, marginBottom: 4 }}>{UI_TEXT_RU.admission.artifactsTitle}</div>
-        <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 10 }}>{UI_TEXT_RU.admission.artifactsHint}</div>
+        <div style={{ fontWeight: 800, marginBottom: 8 }}>Artifacts (JSON)</div>
 
         <div
           style={{
@@ -183,16 +199,26 @@ export function ProjectPage() {
           ) : null}
         </div>
 
+        <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+          Минимум для прохождения гейта: опиши сценарий (кто действует, что делает неправильно, к чему это приводит) и
+          зафиксируй цену ошибки так, чтобы было видно управленческое основание.
+        </div>
+
         <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
           <button
             onClick={onEvaluate}
             disabled={evalBusy}
             style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}
           >
-            {evalBusy ? UI_TEXT_RU.common.loading : UI_TEXT_RU.admission.submit}
+            {evalBusy ? "Evaluating..." : "Evaluate"}
           </button>
 
-          <span style={{ fontSize: 12, opacity: 0.75 }}>{UI_TEXT_RU.admission.submitHint}</span>
+          <button
+            onClick={() => setArtifactsText(JSON.stringify(ARTIFACTS_TEMPLATE, null, 2))}
+            style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}
+          >
+            Insert template
+          </button>
 
           {!parsed.ok ? <span style={{ fontSize: 12, color: "#c00" }}>{parsed.error}</span> : null}
         </div>
@@ -200,99 +226,95 @@ export function ProjectPage() {
 
       {evalErr ? <ErrorBlock title="evaluate error" error={evalErr} /> : null}
 
-      {/* Decision */}
       {evalRes ? (
         <section style={{ border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              <div style={{ fontWeight: 900, fontSize: 16 }}>{UI_TEXT_RU.decision.title}</div>
-              {decisionBadge(evalRes.decision)}
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>
-              {UI_TEXT_RU.decision.fields.submission}: {evalRes.submission_id ?? UI_TEXT_RU.common.dash}
-            </div>
-          </div>
+          {(() => {
+            const meta = decisionText(evalRes.decision);
 
-          <div style={{ marginTop: 8, fontWeight: 900, fontSize: 16 }}>
-            {decisionTitleRu(decision)}
-          </div>
-
-          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-            {decisionHintRu(decision)}
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
-            <div style={{ fontSize: 12 }}>
-              <div>
-                <b>{UI_TEXT_RU.decision.fields.gate}:</b> {evalRes.current_gate_id ?? UI_TEXT_RU.common.dash}
-              </div>
-              <div>
-                <b>{UI_TEXT_RU.decision.fields.canon}:</b> {evalRes.current_gate_version ?? UI_TEXT_RU.common.dash}
-              </div>
-              <div>
-                <b>{UI_TEXT_RU.decision.fields.stateBefore}:</b> {evalRes.project_state ?? UI_TEXT_RU.common.dash}
-              </div>
-              <div>
-                <b>{UI_TEXT_RU.decision.fields.stateAfter}:</b> {evalRes.next_state ?? UI_TEXT_RU.common.dash}
-              </div>
-            </div>
-
-            <div>
-              <div style={{ fontWeight: 800, marginBottom: 6, fontSize: 12 }}>
-                {UI_TEXT_RU.decision.errors.title}
-              </div>
-
-              {Array.isArray(evalRes.errors) && evalRes.errors.length > 0 ? (
-                <div style={{ display: "grid", gap: 8 }}>
-                  {evalRes.errors.map((e: any, i: number) => {
-                    const code = extractViolationCode(e);
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          border: "1px solid #ddd",
-                          borderRadius: 8,
-                          padding: 10,
-                          background: "#fafafa",
-                        }}
-                      >
-                        <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                          <span style={{ fontFamily: "monospace", fontWeight: 900, fontSize: 12 }}>
-                            {code ?? UI_TEXT_RU.common.dash}
-                          </span>
-                          {e.path ? (
-                            <span style={{ fontFamily: "monospace", fontSize: 12, opacity: 0.85 }}>
-                              {e.path}
-                            </span>
-                          ) : null}
-                        </div>
-                        {e.message ? (
-                          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>{e.message}</div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+            return (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                    <div style={{ fontWeight: 900, fontSize: 16 }}>{meta.title}</div>
+                    {decisionBadge(evalRes.decision)}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>submission: {evalRes.submission_id ?? "—"}</div>
                 </div>
-              ) : (
-                <div style={{ fontSize: 12, opacity: 0.7 }}>{UI_TEXT_RU.decision.errors.empty}</div>
-              )}
-            </div>
-          </div>
 
-          <details style={{ marginTop: 12 }}>
-            <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.8 }}>
-              {UI_TEXT_RU.decision.raw.show}
-            </summary>
-            <pre style={{ margin: "10px 0 0", fontSize: 12, whiteSpace: "pre-wrap" }}>
-              {JSON.stringify(evalRes, null, 2)}
-            </pre>
-          </details>
+                {meta.text ? <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>{meta.text}</div> : null}
 
-          <div style={{ marginTop: 10, fontSize: 12 }}>
-            <Link to={`/projects/${projectId}/audit`}>{UI_TEXT_RU.audit.title}</Link>
-          </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+                  <div style={{ fontSize: 12 }}>
+                    <div>
+                      <b>current_gate_id:</b> {evalRes.current_gate_id ?? "—"}
+                    </div>
+                    <div>
+                      <b>current_gate_version:</b> {evalRes.current_gate_version ?? "—"}
+                    </div>
+                    <div>
+                      <b>project_state:</b> {evalRes.project_state ?? "—"}
+                    </div>
+                    <div>
+                      <b>next_state:</b> {evalRes.next_state ?? "—"}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                      {evalRes.decision === "reject"
+                        ? "Причины запрета"
+                        : evalRes.decision === "need_more"
+                        ? "Что нужно добавить"
+                        : "Диагностика"}
+                    </div>
+
+                    {Array.isArray(evalRes.errors) && evalRes.errors.length > 0 ? (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {evalRes.errors.map((e: any, i: number) => (
+                          <div
+                            key={i}
+                            style={{
+                              border: "1px solid #ddd",
+                              borderRadius: 8,
+                              padding: 10,
+                              background: "#fafafa",
+                            }}
+                          >
+                            <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 4 }}>{e.message ?? "—"}</div>
+                            <div style={{ fontSize: 11, opacity: 0.7 }}>
+                              {e.path ? (
+                                <>
+                                  path: <b>{e.path}</b>
+                                </>
+                              ) : null}
+                              {e.path && e.severity ? " · " : null}
+                              {e.severity ? <>severity: {e.severity}</> : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>—</div>
+                    )}
+                  </div>
+                </div>
+
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.8 }}>Show raw response</summary>
+                  <pre style={{ margin: "10px 0 0", fontSize: 12, whiteSpace: "pre-wrap" }}>
+                    {JSON.stringify(evalRes, null, 2)}
+                  </pre>
+                </details>
+
+                <div style={{ marginTop: 10, fontSize: 12 }}>
+                  <Link to={`/projects/${projectId}/audit`}>Open audit</Link>
+                </div>
+              </>
+            );
+          })()}
         </section>
       ) : null}
     </div>
   );
 }
+
