@@ -51,6 +51,12 @@ export const UI_TEXT_RU = Object.freeze({
     artifactsFieldLabel: "Артефакты (JSON)",
   },
 
+  states: {
+    notSubmitted: "Нет сабмишенов",
+    admissionDenied: "Допуск запрещён",
+    admissionStatePrefix: "Состояние",
+  },
+
   decision: {
     title: "Решение Gate",
     deniedTitle: "ДОПУСК ЗАПРЕЩЁН",

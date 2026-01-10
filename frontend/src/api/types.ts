@@ -21,14 +21,19 @@ export type EvaluateRequest = {
   artifacts: Record<string, unknown>;
 };
 
+export type GateError = {
+  code: string;
+  message?: string;
+};
+
 export type EvaluateResponse = {
-  decision: "allow" | "reject" | "need_more" | "error" | string;
-  next_state?: string | null;
-  errors: unknown[];
-  submission_id?: string;
-  project_state?: string;
-  current_gate_id?: string;
-  current_gate_version?: string;
+  decision: string;
+  next_state: string;
+  errors: GateError[];
+  submission_id: string;
+  project_state: string;
+  current_gate_id: string;
+  current_gate_version: string;
 };
 
 export type Submission = {
