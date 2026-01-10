@@ -29,13 +29,11 @@ export function DecisionBlock({ result }: Props) {
         <Row label={UI_TEXT_RU.decision.fields.gate} value={result.current_gate_id} />
         <Row label={UI_TEXT_RU.decision.fields.decision} value={result.decision} />
         {result.errors?.[0]?.code ? (
-          <Row label={UI_TEXT_RU.decision.fields.violation} value={result.errors[0].code} />
+        <Row label={UI_TEXT_RU.decision.fields.violation} value={result.errors[0].code} />
         ) : null}
         <Row label={UI_TEXT_RU.decision.fields.canon} value={result.current_gate_version} />
-        <Row
-          label={UI_TEXT_RU.decision.fields.stateTransition}
-          value={`${result.project_state} → ${result.next_state}`}
-        />
+        <Row label={UI_TEXT_RU.decision.fields.stateBefore} value={result.project_state} />
+        <Row label={UI_TEXT_RU.decision.fields.stateAfter} value={result.next_state} />
       </div>
 
       <div className="mt-3 text-xs opacity-80">{hint}</div>
