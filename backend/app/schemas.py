@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ============================================================
@@ -11,6 +11,8 @@ Severity = Literal["error", "warning"]
 
 
 class StructuredErrorMeta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     ui_field_id: Optional[str] = None
     ui_field_ids: Optional[List[str]] = None
     ui_block_id: Optional[str] = None
@@ -19,9 +21,6 @@ class StructuredErrorMeta(BaseModel):
     rule_id: Optional[str] = None
     gate_id: Optional[str] = None
     gate_version: Optional[str] = None
-
-    class Config:
-        extra = "forbid"
 
 class StructuredError(BaseModel):
     code: str
