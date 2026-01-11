@@ -1,12 +1,9 @@
 # Changelog
 
-## [Unreleased]
-- Add canonical corpus scaffolding (examples for gates 01–05)
-- Add runtime contract
-- Add shared lexical noise and forbidden patterns
-
-## [1.0.0] - Initial Canon
-- Gates 01–05 assembled into state machine
-- Added registries: gates_registry.yaml, artifact_registry.yaml
-- Added UI mappings: artifact_ui_mapping.yaml, ux_messages.yaml, ui_flow.yaml
+## v0.1.1 — Product UX Phase 1.1
+- StructuredError.meta (UI binding: ui_field_id / ui_field_ids / ui_block_id)
+- UI Schema v1 (product mode), additive to frozen OpenAPI v0.1
+- Frontend audit/product switch stabilized
+- Strict OpenAPI v0.1 compliance preserved
+- Contract tests: 40 passed
 
