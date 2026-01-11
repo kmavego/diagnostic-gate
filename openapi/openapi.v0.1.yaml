@@ -342,10 +342,10 @@ components:
           type: string
           enum: [error, warning]
         meta:
-          description: Optional machine-readable details for UI binding and audit
-          anyOf:
-            - $ref: "#/components/schemas/StructuredErrorMeta"
-            - type: "null"
+          description: Optional machine-readable details (UI binding, trace, etc.)
+          type: [object, "null"]
+          additionalProperties: true
+
 
     StructuredErrorMeta:
       type: object
