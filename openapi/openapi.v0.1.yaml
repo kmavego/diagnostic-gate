@@ -292,6 +292,38 @@ components:
           items:
             $ref: "#/components/schemas/StructuredError"
 
+    StructuredErrorMeta:
+      type: object
+      additionalProperties: false
+      description: >
+        Machine-readable metadata for binding errors to product UI fields.
+        No hints, no remediation guidance.
+      properties:
+        ui_field_id:
+          type: string
+          description: Single UI field id (from UiSchemaV1 field.id)
+        ui_field_ids:
+          type: array
+          items:
+            type: string
+          description: Multiple UI field ids (e.g., composite field validation)
+        ui_block_id:
+          type: string
+          description: Optional UI block/section id
+
+        artifact_path:
+          type: string
+          description: Optional JSON pointer to artifact location (e.g., /artifacts/target_action)
+        rule_id:
+          type: string
+          description: Optional stable rule identifier
+        gate_id:
+          type: string
+          description: Optional gate identifier
+        gate_version:
+          type: string
+          description: Optional gate version
+
     StructuredError:
       type: object
       additionalProperties: true
@@ -309,6 +341,38 @@ components:
         severity:
           type: string
           enum: [error, warning]
+        meta:
+          description: Optional machine-readable details for UI binding and audit
+          anyOf:
+            - $ref: "#/components/schemas/StructuredErrorMeta"
+            - type: "null"
+
+    StructuredErrorMeta:
+      type: object
+      additionalProperties: false
+      properties:
+        ui_field_id:
+          type: string
+          description: Primary UI field id to highlight
+        ui_field_ids:
+          type: array
+          items: { type: string }
+          description: Additional UI field ids to highlight (e.g., subfields)
+        ui_block_id:
+          type: string
+          description: Optional UI block/section id to highlight
+
+        artifact_path:
+          type: string
+          description: JSON pointer to artifact location (e.g., /artifacts/error_scenario)
+        rule_id:
+          type: string
+          description: Engine rule id / error_code that produced this error
+        gate_id:
+          type: string
+        gate_version:
+          type: string
+
 
     # ---- Core objects ----
     Project:

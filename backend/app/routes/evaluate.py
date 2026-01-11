@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import json
+import sys
 import uuid
 from pathlib import Path
-import sys
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from ..auth import get_owner_id
 from ..db import get_db
 from ..models import Project, Submission
 from ..schemas import EvaluateRequest, EvaluateResponse
-from ..auth import get_owner_id
-from ..state import gate_for_state, FINAL_STATE
+from ..state import FINAL_STATE, gate_for_state
 
 # Ensure repo root is importable so we can import engine/
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -26,9 +26,6 @@ from engine.evaluator import evaluate_gate  # noqa: E402
 router = APIRouter(prefix="/projects", tags=["evaluate"])
 
 
-# -----------------------------
-# API adapters (engine -> API)
-# -----------------------------
 def map_decision(raw: str | None) -> str:
     """
     Engine decision vocabulary -> API decision vocabulary (frozen contract).
@@ -45,39 +42,104 @@ def map_decision(raw: str | None) -> str:
     return "error"
 
 
-def normalize_errors(raw_errors: Any) -> list[dict[str, Any]]:
+def _clean_meta(meta: dict[str, Any] | None) -> Optional[dict[str, Any]]:
     """
-    Engine errors -> structured errors required by OpenAPI contract:
-    {code, message, path, severity}
+    Remove keys with None values; return None if empty.
+    Note: even if we drop None keys here, Pydantic models may still emit nulls
+    unless response_model_exclude_none=True is enabled on the route.
+    """
+    if not meta:
+        return None
+    m = {k: v for k, v in meta.items() if v is not None}
+    return m or None
+
+
+def normalize_errors(raw_errors: Any, *, gate_id: str, gate_version: str) -> list[dict[str, Any]]:
+    """
+    Engine errors -> StructuredError (OpenAPI v0.1):
+    {code, message, path, severity, meta?}
+
+    Product UX Phase 1.1:
+    - bind errors to UI via meta.ui_field_id/ui_field_ids/ui_block_id
+    - make path field-level when possible: /artifacts/<artifact_id>
+
+    IMPORTANT:
+    - meta must not contain null values in the final JSON (contract test),
+      so the route must use response_model_exclude_none=True.
     """
     if not raw_errors:
         return []
 
-    # Ensure iterable list
     items = raw_errors if isinstance(raw_errors, list) else [raw_errors]
-
     out: list[dict[str, Any]] = []
+
     for e in items:
-        # If it's a plain string
+        # Plain string error
         if isinstance(e, str):
             out.append(
                 {
                     "code": "GATE_REJECTED",
                     "message": e,
-                    "path": "artifacts",
+                    "path": "/artifacts",
                     "severity": "error",
+                    "meta": _clean_meta(
+                        {
+                            "gate_id": gate_id,
+                            "gate_version": gate_version,
+                        }
+                    ),
                 }
             )
             continue
 
-        # If it's a dict-like error from engine
+        # Dict-like engine error
         if isinstance(e, dict):
+            artifact_id = e.get("artifact_id") if isinstance(e.get("artifact_id"), str) else ""
+            error_code = e.get("error_code") or e.get("code") or "GATE_REJECTED"
+
+            msg = e.get("message") or e.get("msg")
+            if not isinstance(msg, str) or not msg.strip():
+                msg = json.dumps(e, ensure_ascii=False)
+
+            # path: if provided, normalize; else derive from artifact_id
+            path = e.get("path")
+            if isinstance(path, str) and path.strip():
+                norm = path.strip()
+                # support legacy "artifacts.x" -> "/artifacts/x"
+                if not norm.startswith("/") and norm.startswith("artifacts."):
+                    norm = "/" + norm.replace(".", "/")
+                path_out = norm
+            else:
+                path_out = f"/artifacts/{artifact_id}" if artifact_id else "/artifacts"
+
+            # ui_field_ids: ensure it's a list[str] or omitted
+            ui_field_ids_raw = e.get("ui_field_ids")
+            ui_field_ids: Optional[list[str]] = None
+            if isinstance(ui_field_ids_raw, list):
+                tmp = [x for x in ui_field_ids_raw if isinstance(x, str) and x.strip()]
+                ui_field_ids = tmp or None
+
+            meta = _clean_meta(
+                {
+                    # UI binding
+                    "ui_field_id": e.get("ui_field_id") if isinstance(e.get("ui_field_id"), str) else None,
+                    "ui_field_ids": ui_field_ids,
+                    "ui_block_id": e.get("ui_block_id") if isinstance(e.get("ui_block_id"), str) else None,
+                    # tracing
+                    "artifact_path": f"/artifacts/{artifact_id}" if artifact_id else None,
+                    "rule_id": str(error_code) if error_code else None,
+                    "gate_id": gate_id,
+                    "gate_version": gate_version,
+                }
+            )
+
             out.append(
                 {
-                    "code": e.get("code") or "GATE_REJECTED",
-                    "message": e.get("message") or e.get("msg") or json.dumps(e, ensure_ascii=False),
-                    "path": e.get("path") or "artifacts",
-                    "severity": e.get("severity") or "error",
+                    "code": str(error_code),
+                    "message": str(msg),
+                    "path": str(path_out),
+                    "severity": str(e.get("severity") or "error"),
+                    "meta": meta,
                 }
             )
             continue
@@ -87,15 +149,25 @@ def normalize_errors(raw_errors: Any) -> list[dict[str, Any]]:
             {
                 "code": "GATE_REJECTED",
                 "message": str(e),
-                "path": "artifacts",
+                "path": "/artifacts",
                 "severity": "error",
+                "meta": _clean_meta(
+                    {
+                        "gate_id": gate_id,
+                        "gate_version": gate_version,
+                    }
+                ),
             }
         )
 
     return out
 
 
-@router.post("/{project_id}/evaluate", response_model=EvaluateResponse)
+@router.post(
+    "/{project_id}/evaluate",
+    response_model=EvaluateResponse,
+    response_model_exclude_none=True,  # ✅ ключевой фикс: не сериализовать None (и внутри meta тоже)
+)
 def evaluate_current_gate(
     project_id: str,
     payload: EvaluateRequest,
@@ -117,7 +189,6 @@ def evaluate_current_gate(
     if gate_ref.gate_id == "FINAL":
         raise HTTPException(status_code=409, detail=f"Unknown state: {p.current_state}")
 
-    # Engine evaluates in its own vocabulary
     result = evaluate_gate(
         gate_id=gate_ref.gate_id,
         gate_version=gate_ref.gate_version,
@@ -128,10 +199,12 @@ def evaluate_current_gate(
     raw_decision = result.get("decision", "BLOCK")
     api_decision = map_decision(raw_decision)
 
-    # Normalize errors for API response (but keep raw result_payload for audit)
-    api_errors = normalize_errors(result.get("errors", []))
+    api_errors = normalize_errors(
+        result.get("errors", []),
+        gate_id=gate_ref.gate_id,
+        gate_version=gate_ref.gate_version,
+    )
 
-    # audit write (store raw engine output verbatim)
     sid = str(uuid.uuid4())
     sub = Submission(
         id=sid,
@@ -141,33 +214,23 @@ def evaluate_current_gate(
         state_at_submit=p.current_state,
         artifacts_payload=json.dumps(payload.artifacts, ensure_ascii=False),
         result_payload=json.dumps(result, ensure_ascii=False),
-        decision=raw_decision,  # keep raw engine decision for audit truth
+        decision=raw_decision,
     )
     db.add(sub)
 
-    # transition only on PASS (engine-level rule)
     if (raw_decision or "").upper() == "PASS":
         next_state = result.get("next_state")
         if not next_state:
-            # defensive: engine must provide next_state on PASS
-            raise HTTPException(
-                status_code=500,
-                detail="Engine returned PASS without next_state",
-            )
+            raise HTTPException(status_code=500, detail="Engine returned PASS without next_state")
         p.current_state = next_state
 
     db.commit()
     db.refresh(p)
 
-    # return response with current gate after possible transition
     current_gate = gate_for_state(p.current_state)
 
-    # IMPORTANT: response must speak API contract vocabulary (allow/reject/...)
     return EvaluateResponse(
         decision=api_decision,
-        # next_state is meaningful for allow; for reject you can return null, but
-        # we keep engine-provided value if any. If your EvaluateResponse schema
-        # requires null on reject, set it conditionally here.
         next_state=result.get("next_state") if api_decision == "allow" else None,
         errors=api_errors,
         submission_id=sid,

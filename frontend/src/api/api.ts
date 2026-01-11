@@ -1,5 +1,12 @@
-import type { EvaluateRequest, EvaluateResponse, Project, Submission, UiSchemaResponse, AuditDetail } from "./types";
-
+import type {
+  EvaluateRequest,
+  EvaluateResponse,
+  Project,
+  Submission,
+  UiSchemaResponse,
+  AuditDetail,
+  UiSchemaV1,
+} from "./types";
 
 /**
  * Важное:
@@ -43,18 +50,25 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-
 // --- Projects ---
 export async function listProjects(): Promise<Project[]> {
   try {
     const r = await http<any>("/projects", { method: "GET" });
-    return Array.isArray(r) ? (r as Project[]) : [];
+
+    // Support both shapes:
+    // - MVP legacy: Project[]
+    // - OpenAPI v0.1: { items: Project[], total: number }
+    if (Array.isArray(r)) return r as Project[];
+
+    const items = (r as any)?.items;
+    if (Array.isArray(items)) return items as Project[];
+
+    return [];
   } catch {
     // список может отсутствовать в MVP — это не ошибка для UI
     return [];
   }
 }
-
 
 export async function createProject(payload?: { title?: string }): Promise<Project> {
   return http<Project>("/projects", {
@@ -63,9 +77,19 @@ export async function createProject(payload?: { title?: string }): Promise<Proje
   });
 }
 
-
+/**
+ * Legacy frozen UI schema (v0.1) — dev/audit mode
+ */
 export async function getUiSchema(projectId: string): Promise<UiSchemaResponse> {
   return http<UiSchemaResponse>(`/projects/${projectId}/ui-schema`, { method: "GET" });
+}
+
+/**
+ * Product UI schema v1 — product mode
+ * Separate endpoint to avoid breaking frozen OpenAPI v0.1.
+ */
+export async function getUiSchemaV1(projectId: string): Promise<UiSchemaV1> {
+  return http<UiSchemaV1>(`/projects/${projectId}/ui-schema-v1`, { method: "GET" });
 }
 
 export async function evaluateProject(projectId: string, req: EvaluateRequest): Promise<EvaluateResponse> {
@@ -88,6 +112,4 @@ export async function listSubmissionsByProject(projectId: string): Promise<Submi
 export async function getSubmissionDetail(submissionId: string): Promise<AuditDetail> {
   return http<AuditDetail>(`/submissions/${encodeURIComponent(submissionId)}`, { method: "GET" });
 }
-
-
 
