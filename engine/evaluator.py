@@ -6,13 +6,13 @@ import re
 
 import yaml
 
+
 class NotImplementedEngine(Exception):
     """
     Backward-compatibility exception for tests.
     In deterministic MVP engine this is not raised, but kept to avoid import errors.
     """
     pass
-
 
 
 # -----------------------------
@@ -26,6 +26,11 @@ class EngineError(TypedDict, total=False):
     message: str
     offending_spans: List[Dict[str, Any]]
     missing_fields: List[str]
+
+    # Product UX Phase 1.1 — UI binding
+    ui_field_id: str
+    ui_field_ids: List[str]
+    ui_block_id: str
 
 
 class EngineResult(TypedDict, total=False):
@@ -111,9 +116,18 @@ def _first_span(text: str, needle: str) -> Optional[Dict[str, Any]]:
     return {"start": idx, "end": idx + len(needle), "text": text[idx: idx + len(needle)]}
 
 
-def _make_error(artifact_id: str, error_code: str, variant: str = "normal", spans: Optional[List[Dict[str, Any]]] = None,
-                missing_fields: Optional[List[str]] = None) -> EngineError:
-    return {
+def _make_error(
+    artifact_id: str,
+    error_code: str,
+    variant: str = "normal",
+    spans: Optional[List[Dict[str, Any]]] = None,
+    missing_fields: Optional[List[str]] = None,
+    *,
+    ui_field_id: Optional[str] = None,
+    ui_field_ids: Optional[List[str]] = None,
+    ui_block_id: Optional[str] = None,
+) -> EngineError:
+    err: EngineError = {
         "artifact_id": artifact_id,
         "error_code": error_code,
         "reason_class": _reason_class_for(error_code),
@@ -121,7 +135,14 @@ def _make_error(artifact_id: str, error_code: str, variant: str = "normal", span
         "message": _msg(error_code, variant),
         "offending_spans": spans or [],
         "missing_fields": missing_fields or [],
+        # Default binding: same-named UI field as artifact_id
+        "ui_field_id": ui_field_id or artifact_id,
     }
+    if ui_field_ids:
+        err["ui_field_ids"] = ui_field_ids
+    if ui_block_id:
+        err["ui_block_id"] = ui_block_id
+    return err
 
 
 # -----------------------------
@@ -189,16 +210,29 @@ def _eval_problem_validation(artifacts: Dict[str, Any]) -> Tuple[str, Optional[s
     for v in _state_verbs():
         if v.lower() in target_action.lower():
             span = _first_span(target_action, v)
-            errs.append(_make_error("target_action", "ERR_VAGUE_OBJECTIVE", spans=[span] if span else []))
+            errs.append(_make_error(
+                "target_action",
+                "ERR_VAGUE_OBJECTIVE",
+                spans=[span] if span else [],
+                ui_field_id="target_action",
+            ))
             break
 
     # error_scenario: must contain context tokens and be concrete
     if len(_words(error_scenario)) < 20:
-        errs.append(_make_error("error_scenario", "ERR_INCOMPLETE_ERROR_SCENARIO"))
+        errs.append(_make_error(
+            "error_scenario",
+            "ERR_INCOMPLETE_ERROR_SCENARIO",
+            ui_field_id="error_scenario",
+        ))
     if not _contains_any(error_scenario, ["когда", "если", "в случае"]):
         # treat as incomplete (same error)
         if not any(e["error_code"] == "ERR_INCOMPLETE_ERROR_SCENARIO" and e["artifact_id"] == "error_scenario" for e in errs):
-            errs.append(_make_error("error_scenario", "ERR_INCOMPLETE_ERROR_SCENARIO"))
+            errs.append(_make_error(
+                "error_scenario",
+                "ERR_INCOMPLETE_ERROR_SCENARIO",
+                ui_field_id="error_scenario",
+            ))
 
     # abstract error: vague consequences OR "проблемы/эффективность" без конкретики
     vague = _lex().get("lexical_noise", {}).get("vague_consequences_ru", [])
@@ -212,18 +246,39 @@ def _eval_problem_validation(artifacts: Dict[str, Any]) -> Tuple[str, Optional[s
         "улучшается взаимодействие",
     ]
     if _contains_any(error_scenario, abstract_markers):
-        errs.append(_make_error("error_scenario", "ERR_ABSTRACT_ERROR"))
-
+        errs.append(_make_error(
+            "error_scenario",
+            "ERR_ABSTRACT_ERROR",
+            ui_field_id="error_scenario",
+        ))
 
     # economic impact thresholds
     if not isinstance(economic_impact, dict) or "value" not in economic_impact or "unit" not in economic_impact:
-        errs.append(_make_error("economic_impact", "ERR_LOW_BUSINESS_IMPACT", missing_fields=["value", "unit"]))
+        missing: List[str] = []
+        if not isinstance(economic_impact, dict) or "value" not in economic_impact:
+            missing.append("value")
+        if not isinstance(economic_impact, dict) or "unit" not in economic_impact:
+            missing.append("unit")
+
+        ui_ids = [f"economic_impact.{m}" for m in missing] if missing else ["economic_impact.value", "economic_impact.unit"]
+        errs.append(_make_error(
+            "economic_impact",
+            "ERR_LOW_BUSINESS_IMPACT",
+            missing_fields=missing or ["value", "unit"],
+            ui_field_id=ui_ids[0],
+            ui_field_ids=ui_ids,
+        ))
     else:
         try:
             value = float(economic_impact["value"])
             unit = str(economic_impact["unit"])
         except Exception:
-            errs.append(_make_error("economic_impact", "ERR_LOW_BUSINESS_IMPACT"))
+            # parsing error: most often value is not a number
+            errs.append(_make_error(
+                "economic_impact",
+                "ERR_LOW_BUSINESS_IMPACT",
+                ui_field_id="economic_impact.value",
+            ))
         else:
             thresholds = {
                 "USD": 500.0,
@@ -231,8 +286,18 @@ def _eval_problem_validation(artifacts: Dict[str, Any]) -> Tuple[str, Optional[s
                 "Hours": 40.0,
                 "Conversion%": 1.0,
             }
-            if unit not in thresholds or value < thresholds[unit]:
-                errs.append(_make_error("economic_impact", "ERR_LOW_BUSINESS_IMPACT"))
+            if unit not in thresholds:
+                errs.append(_make_error(
+                    "economic_impact",
+                    "ERR_LOW_BUSINESS_IMPACT",
+                    ui_field_id="economic_impact.unit",
+                ))
+            elif value < thresholds[unit]:
+                errs.append(_make_error(
+                    "economic_impact",
+                    "ERR_LOW_BUSINESS_IMPACT",
+                    ui_field_id="economic_impact.value",
+                ))
 
     if errs:
         return "BLOCK", None, errs
@@ -358,7 +423,6 @@ def _eval_universality_filter(artifacts: Dict[str, Any]) -> Tuple[str, Optional[
     if _contains_any(audience_bounds, _universality_claims()):
         errs.append(_make_error("audience_bounds", "ERR_UNIVERSAL_AUDIENCE"))
 
-
     # no exclusions
     if not _contains_any(audience_bounds, ["исключ", "не допущ", "противопоказ", "нельзя"]):
         errs.append(_make_error("audience_bounds", "ERR_NO_EXCLUSION_CRITERIA"))
@@ -420,5 +484,4 @@ def evaluate_gate(
 
 
 __all__ = ["evaluate_gate", "EngineResult", "EngineError", "NotImplementedEngine"]
-
 

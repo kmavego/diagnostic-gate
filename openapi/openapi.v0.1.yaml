@@ -292,9 +292,41 @@ components:
           items:
             $ref: "#/components/schemas/StructuredError"
 
+    StructuredErrorMeta:
+      type: object
+      additionalProperties: false
+      description: >
+        Machine-readable metadata for binding errors to product UI fields.
+        No hints, no remediation guidance.
+      properties:
+        ui_field_id:
+          type: string
+          description: Single UI field id (from UiSchemaV1 field.id)
+        ui_field_ids:
+          type: array
+          items:
+            type: string
+          description: Multiple UI field ids (e.g., composite field validation)
+        ui_block_id:
+          type: string
+          description: Optional UI block/section id
+
+        artifact_path:
+          type: string
+          description: Optional JSON pointer to artifact location (e.g., /artifacts/target_action)
+        rule_id:
+          type: string
+          description: Optional stable rule identifier
+        gate_id:
+          type: string
+          description: Optional gate identifier
+        gate_version:
+          type: string
+          description: Optional gate version
+
     StructuredError:
       type: object
-      additionalProperties: true
+      additionalProperties: false
       required: [code, message, path, severity]
       properties:
         code:
@@ -305,10 +337,16 @@ components:
           description: Human-readable explanation
         path:
           type: string
-          description: JSON path to the problematic location (e.g., artifacts.A1)
+          description: JSON pointer to the problematic location (e.g., /artifacts)
         severity:
           type: string
           enum: [error, warning]
+        meta:
+          anyOf:
+            - $ref: "#/components/schemas/StructuredErrorMeta"
+            - type: "null"
+          description: Optional metadata for UI binding and tracing
+
 
     # ---- Core objects ----
     Project:
