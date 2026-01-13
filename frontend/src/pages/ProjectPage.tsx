@@ -69,7 +69,7 @@ function normalizePathKey(p: any): string {
   // "/artifacts/target_action" -> "artifacts.target_action"
   if (s.startsWith("/")) {
     const noSlash = s.slice(1);
-    return noSlash.replaceAll("/", ".");
+    return noSlash.replace(/\//g, ".");
   }
 
   // "artifacts.target_action" already ok
