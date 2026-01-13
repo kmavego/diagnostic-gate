@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
-import { evaluateProject, getUiSchema, getUiSchemaV1 } from "../api/api";
+import { evaluateProject, getUiSchema, getUiSchemaV1, getLatestSubmissionArtifacts } from "../api/api";
 import type { EvaluateResponse, UiSchemaResponse } from "../api/types";
 import { JsonTextarea } from "../ui/JsonTextarea";
 import { ErrorBlock } from "../ui/ErrorBlock";
@@ -99,37 +99,39 @@ export function ProjectPage() {
   const [evalErr, setEvalErr] = useState<unknown>(null);
   const [evalRes, setEvalRes] = useState<EvaluateResponse | null>(null);
 
+  // Prefill safety: once user edits, we never overwrite from async prefill.
+  const hasUserEditedRef = useRef(false);
+
   /**
    * Product mode: field-level errors map (ui_field_id -> messages[])
    * Source: EvaluateResponse.errors[*].meta.ui_field_id / ui_field_ids
    */
-    const productFieldErrorsById = useMemo(() => {
-      const map: Record<string, string[]> = {};
-      if (!evalRes?.errors) return map;
+  const productFieldErrorsById = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    if (!evalRes?.errors) return map;
 
-      for (const e of evalRes.errors as any[]) {
-        const meta = e?.meta;
-        const msg = (e?.message || "").trim();
-        if (!msg || !meta) continue;
+    for (const e of evalRes.errors as any[]) {
+      const meta = e?.meta;
+      const msg = (e?.message || "").trim();
+      if (!msg || !meta) continue;
 
-        // 1. одиночное поле
-        if (meta.ui_field_id) {
-          map[meta.ui_field_id] = map[meta.ui_field_id] || [];
-          map[meta.ui_field_id].push(msg);
-        }
-
-        // 2. несколько полей (например economic_impact.value + unit)
-        if (Array.isArray(meta.ui_field_ids)) {
-          for (const id of meta.ui_field_ids) {
-            map[id] = map[id] || [];
-            map[id].push(msg);
-          }
-        }
+      // 1. одиночное поле
+      if (meta.ui_field_id) {
+        map[meta.ui_field_id] = map[meta.ui_field_id] || [];
+        map[meta.ui_field_id].push(msg);
       }
 
-      return map;
-    }, [evalRes]);
+      // 2. несколько полей (например economic_impact.value + unit)
+      if (Array.isArray(meta.ui_field_ids)) {
+        for (const id of meta.ui_field_ids) {
+          map[id] = map[id] || [];
+          map[id].push(msg);
+        }
+      }
+    }
 
+    return map;
+  }, [evalRes]);
 
   /**
    * Audit mode: error map by path (for JSON textarea highlighting)
@@ -151,7 +153,9 @@ export function ProjectPage() {
     return map;
   }, [evalRes]);
 
-  const artifactsHasError = isAudit && ((auditJsonErrorsByPath["artifacts"]?.length ?? 0) > 0 || (auditJsonErrorsByPath["/artifacts"]?.length ?? 0) > 0);
+  const artifactsHasError =
+    isAudit &&
+    ((auditJsonErrorsByPath["artifacts"]?.length ?? 0) > 0 || (auditJsonErrorsByPath["/artifacts"]?.length ?? 0) > 0);
   const artifactsBlockRef = useRef<HTMLDivElement | null>(null);
 
   // грузим schema ВСЕГДА, иначе product-форма не появится
@@ -167,6 +171,43 @@ export function ProjectPage() {
       }
     })();
   }, [projectId, isAudit]);
+
+  const schemaIsV1 = !!ui && (ui as any).ui_schema_version === "v1" && (ui as any).renderer === "form_v1";
+
+  // ---------------------------------------------------------------------------
+  // Product prefill: once per page init, best-effort, from latest immutable submission.
+  // Conditions:
+  // - product mode
+  // - schema v1 is loaded (so product form is active)
+  // - user has not started editing
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!projectId) return;
+    if (isAudit) return;
+    if (!schemaIsV1) return;
+    if (hasUserEditedRef.current) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const r = await getLatestSubmissionArtifacts(projectId);
+        if (cancelled) return;
+        if (!r) return;
+
+        // apply only if user still hasn't edited
+        if (!hasUserEditedRef.current) {
+          setFormState({ artifacts: r.artifacts });
+        }
+      } catch {
+        // prefill is best-effort: ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, isAudit, schemaIsV1]);
 
   // audit-only scroll-to-textarea on errors
   useEffect(() => {
@@ -228,23 +269,15 @@ export function ProjectPage() {
   const auditModeLinkTo = `${location.pathname}?mode=audit`;
   const productModeLinkTo = location.pathname;
 
-  const schemaIsV1 = !!ui && (ui as any).ui_schema_version === "v1" && (ui as any).renderer === "form_v1";
-
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 900 }}>
-            {isAudit ? `Project ${projectId}` : "Проект"}
-          </div>
+          <div style={{ fontSize: 18, fontWeight: 900 }}>{isAudit ? `Project ${projectId}` : "Проект"}</div>
 
           <div style={{ fontSize: 12, opacity: 0.7, display: "flex", gap: 12, flexWrap: "wrap" }}>
             <Link to={auditLinkTo}>{isAudit ? "Open immutable audit" : "Открыть протокол"}</Link>
-            {isAudit ? (
-              <Link to={productModeLinkTo}>В продуктовый режим</Link>
-            ) : (
-              <Link to={auditModeLinkTo}>В dev/audit режим</Link>
-            )}
+            {isAudit ? <Link to={productModeLinkTo}>В продуктовый режим</Link> : <Link to={auditModeLinkTo}>В dev/audit режим</Link>}
           </div>
         </div>
 
@@ -264,9 +297,7 @@ export function ProjectPage() {
           ) : (
             <details>
               <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.8 }}>Show schema</summary>
-              <pre style={{ margin: "10px 0 0", fontSize: 12, whiteSpace: "pre-wrap" }}>
-                {JSON.stringify(ui, null, 2)}
-              </pre>
+              <pre style={{ margin: "10px 0 0", fontSize: 12, whiteSpace: "pre-wrap" }}>{JSON.stringify(ui, null, 2)}</pre>
             </details>
           )}
         </section>
@@ -274,9 +305,7 @@ export function ProjectPage() {
 
       {/* Artifacts input */}
       <section ref={artifactsBlockRef} style={{ border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>
-          {isAudit ? "Artifacts (JSON)" : "Данные проверки"}
-        </div>
+        <div style={{ fontWeight: 800, marginBottom: 8 }}>{isAudit ? "Artifacts (JSON)" : "Данные проверки"}</div>
 
         {/* PRODUCT: форма по UI-schema v1 */}
         {!isAudit ? (
@@ -286,8 +315,7 @@ export function ProjectPage() {
             <div style={{ fontSize: 12, opacity: 0.7 }}>Загрузка формы…</div>
           ) : !schemaIsV1 ? (
             <div style={{ fontSize: 12, opacity: 0.7 }}>
-              UI-schema не v1. Перейди в dev/audit режим для диагностики.{" "}
-              <Link to={auditModeLinkTo}>В dev/audit режим</Link>
+              UI-schema не v1. Перейди в dev/audit режим для диагностики. <Link to={auditModeLinkTo}>В dev/audit режим</Link>
             </div>
           ) : (
             <FormRendererV1
@@ -295,7 +323,9 @@ export function ProjectPage() {
               mode="product"
               value={formState}
               onChange={(next) => {
+                hasUserEditedRef.current = true; // user took control; never overwrite with prefill
                 setFormState(next);
+
                 // UX: clear previous server errors on edit (no client hints)
                 if (evalRes) setEvalRes(null);
                 if (evalErr) setEvalErr(null);
@@ -314,7 +344,15 @@ export function ProjectPage() {
                 background: artifactsHasError ? "#fff5f5" : "transparent",
               }}
             >
-              <JsonTextarea label="artifacts" value={artifactsText} onChange={setArtifactsText} rows={18} />
+              <JsonTextarea
+                label="artifacts"
+                value={artifactsText}
+                onChange={(v) => {
+                  hasUserEditedRef.current = true;
+                  setArtifactsText(v);
+                }}
+                rows={18}
+              />
 
               {artifactsHasError ? (
                 <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
@@ -334,7 +372,10 @@ export function ProjectPage() {
 
             <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
               <button
-                onClick={() => setArtifactsText(JSON.stringify(ARTIFACTS_TEMPLATE, null, 2))}
+                onClick={() => {
+                  hasUserEditedRef.current = true;
+                  setArtifactsText(JSON.stringify(ARTIFACTS_TEMPLATE, null, 2));
+                }}
                 style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}
               >
                 Insert template
@@ -371,9 +412,7 @@ export function ProjectPage() {
                     <div style={{ fontWeight: 900, fontSize: 16 }}>{meta.title}</div>
                     {decisionBadge(evalRes.decision)}
                   </div>
-                  {isAudit ? (
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>submission: {evalRes.submission_id ?? "—"}</div>
-                  ) : null}
+                  {isAudit ? <div style={{ fontSize: 12, opacity: 0.7 }}>submission: {evalRes.submission_id ?? "—"}</div> : null}
                 </div>
 
                 {meta.text ? <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>{meta.text}</div> : null}
@@ -413,9 +452,7 @@ export function ProjectPage() {
 
                     {/* PRODUCT: errors are shown under fields; avoid duplicating list */}
                     {!isAudit ? (
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>
-                        Ошибки отмечены у соответствующих полей формы.
-                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>Ошибки отмечены у соответствующих полей формы.</div>
                     ) : Array.isArray(evalRes.errors) && evalRes.errors.length > 0 ? (
                       <div style={{ display: "grid", gap: 8 }}>
                         {evalRes.errors.map((e: any, i: number) => (
@@ -469,9 +506,7 @@ export function ProjectPage() {
                 {isAudit && (
                   <details style={{ marginTop: 12 }}>
                     <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.8 }}>Show raw response</summary>
-                    <pre style={{ margin: "10px 0 0", fontSize: 12, whiteSpace: "pre-wrap" }}>
-                      {JSON.stringify(evalRes, null, 2)}
-                    </pre>
+                    <pre style={{ margin: "10px 0 0", fontSize: 12, whiteSpace: "pre-wrap" }}>{JSON.stringify(evalRes, null, 2)}</pre>
                   </details>
                 )}
 
