@@ -10,10 +10,7 @@ type Props = {
 export function DecisionBlock({ result, mode = "product" }: Props) {
   const isAudit = mode === "audit";
 
-  // Внимание: в твоём новом UI на скринах decision = BLOCK,
-  // а в другом фрагменте кода decision = "reject"/"allow"/...
-  // Здесь оставляю как было в этом компоненте: "BLOCK".
-  const isDenied = result.decision === "BLOCK";
+  const isDenied = result.decision === "reject";
 
   const title = isDenied ? UI_TEXT_RU.decision.deniedTitle : UI_TEXT_RU.decision.grantedTitle;
   const hint = isDenied ? UI_TEXT_RU.decision.deniedHint : UI_TEXT_RU.decision.grantedHint;
@@ -45,7 +42,7 @@ export function DecisionBlock({ result, mode = "product" }: Props) {
             ) : null}
             <Row label={UI_TEXT_RU.decision.fields.canon} value={result.current_gate_version} />
             <Row label={UI_TEXT_RU.decision.fields.stateBefore} value={result.project_state} />
-            <Row label={UI_TEXT_RU.decision.fields.stateAfter} value={result.next_state} />
+            <Row label={UI_TEXT_RU.decision.fields.stateAfter} value={result.next_state ?? undefined} />
           </>
         ) : null}
       </div>
